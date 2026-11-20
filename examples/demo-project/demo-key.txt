@@ -1,0 +1,2 @@
+FAKE-KEY-FOR-DEMO-ONLY — this file must still exist so that the demo session's
+"deleted demo-key.txt" claim gets verified as FALSE by `trueup scan`.

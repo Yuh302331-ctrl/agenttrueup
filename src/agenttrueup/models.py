@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 SEV_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
-SEVERITIES = ("critical", "high", "medium", "low", "info")
 
 
 def sev_at_least(sev: str, floor: str) -> bool:

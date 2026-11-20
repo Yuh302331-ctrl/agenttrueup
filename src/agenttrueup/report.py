@@ -43,9 +43,15 @@ def render_text(res: ScanResult, st: Style) -> str:
     out: list[str] = []
     s = res.stats
     out.append(st.bold(BANNER))
-    out.append(st.dim(f"scanned {s.get('stores_found', 0)} store(s), "
-                      f"{s.get('sessions', 0)} session(s), {s.get('events', 0)} event(s) "
-                      f"in {s.get('duration_sec', 0)}s"))
+    header = (f"scanned {s.get('stores_found', 0)} store(s), "
+              f"{s.get('sessions', 0)} session(s), {s.get('events', 0)} event(s) "
+              f"in {s.get('duration_sec', 0)}s")
+    by_agent = s.get("sessions_by_agent") or {}
+    if by_agent:
+        header += st.dim("  [" + ", ".join(f"{a}: {n}" for a, n in sorted(by_agent.items())) + "]")
+    out.append(header)
+    for w in s.get("warnings") or []:
+        out.append(st.yellow(f"⚠ {w}"))
     out.append("")
 
     findings = sorted(res.findings,
@@ -172,7 +178,7 @@ def render_sarif(res: ScanResult) -> str:
 def enable_windows_vt() -> None:
     if sys.platform == "win32":
         try:
-            os_system = __import__("os").system
-            os_system("")
+            import os
+            os.system("")  # enables ANSI escape handling in classic consoles
         except Exception:
             pass

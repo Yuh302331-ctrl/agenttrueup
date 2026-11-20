@@ -4,9 +4,11 @@ git state and dependency manifests.  Read-only — never mutates anything."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 from .models import Claim, Finding, Session
@@ -37,7 +39,7 @@ def _git_porcelain(project: str) -> dict[str, str]:
         return {}
     try:
         proc = subprocess.run(
-            ["git", "-C", project, "status", "--porcelain=v1"],
+            ["git", "-C", project, "status", "--porcelain=v1", "-uall"],
             capture_output=True, text=True, timeout=15, errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return {}
@@ -50,12 +52,11 @@ def _git_porcelain(project: str) -> dict[str, str]:
     return out
 
 
-def find_manifests(project: str | None) -> list[Path]:
-    if not project:
-        return []
+@lru_cache(maxsize=256)
+def _find_manifests_cached(project: str) -> tuple[Path, ...]:
     root = Path(project)
     if not root.is_dir():
-        return []
+        return ()
     out: list[Path] = []
     try:
         stack = [(root, 0)]
@@ -71,17 +72,23 @@ def find_manifests(project: str | None) -> list[Path]:
                 if p.is_file() and (p.name in MANIFEST_NAMES
                                     or p.name.startswith("requirements")):
                     out.append(p)
-            try:
-                children = [c for c in d.iterdir() if c.is_dir()]
-            except OSError:
-                continue
-            for c in children:
-                if c.name in SKIP_DIRS or c.name.startswith("."):
-                    continue
-                stack.append((c, depth + 1))
+            for c in entries:
+                if c.is_dir() and c.name not in SKIP_DIRS and not c.name.startswith("."):
+                    stack.append((c, depth + 1))
     except OSError:
         pass
-    return out[:MAX_MANIFESTS]
+    return tuple(out[:MAX_MANIFESTS])
+
+
+def find_manifests(project: str | None) -> list[Path]:
+    """Manifests near a project root (cached per project within a scan)."""
+    if not project:
+        return []
+    try:
+        key = str(Path(project).resolve())
+    except OSError:
+        key = str(project)
+    return list(_find_manifests_cached(key))
 
 
 def manifest_contains(manifest: Path, package: str) -> bool:
@@ -111,11 +118,17 @@ def manifest_contains(manifest: Path, package: str) -> bool:
         proj = data.get("project", {})
         dep_list = list(proj.get("dependencies") or []) + \
             sum((list(v or []) for v in (proj.get("optional-dependencies") or {}).values()), [])
-        poetry = ((data.get("tool") or {}).get("poetry") or {}).get("dependencies") or {}
+        # PEP 735 dependency-groups (uv/pip newer style)
+        dep_list += sum((list(v or []) for v in (data.get("dependency-groups") or {}).values()), [])
+        tool = data.get("tool") or {}
+        poetry = (tool.get("poetry") or {}).get("dependencies") or {}
         names = set()
         for d in dep_list:
             names.add(re.split(r"[=<>!\[ ;]", str(d), maxsplit=1)[0].strip().lower())
         names |= {k.lower() for k in poetry}
+        # poetry local dependency groups: [tool.poetry.group.<name>.dependencies]
+        for group in ((tool.get("poetry") or {}).get("group") or {}).values():
+            names |= {k.lower() for k in (group.get("dependencies") or {})}
         return pkg_l in names
     if manifest.name == "requirements.txt" or manifest.name.startswith("requirements"):
         for line in text.splitlines():
@@ -158,10 +171,13 @@ def verify_claims(session: Session, claims: list[Claim]) -> list[Finding]:
     from .util import parse_ts
     started = parse_ts(session.started)
 
-    # artifact content snapshots let us do exact content verification (zcode)
+    # artifact content snapshots let us do exact content verification
+    # (zcode artifacts, claude Write/Edit inputs, codex apply_patch Add File)
     artifact_by_path: dict[str, dict] = {}
     for art in session.artifacts:
-        artifact_by_path.setdefault(str(art.get("path")), art)
+        ap = str(art.get("path"))
+        for k in (ap, ap.replace("\\", "/"), os.path.normcase(ap)):
+            artifact_by_path.setdefault(k, art)
 
     for c in claims:
         if c.kind == "deleted":
@@ -170,11 +186,14 @@ def verify_claims(session: Session, claims: list[Claim]) -> list[Finding]:
                 c.status = "unverifiable"
                 c.detail = "path could not be resolved"
                 continue
+            ephemeral = _is_ephemeral(p)
             if p.exists():
                 c.status = "failed"
-                c.detail = f"claimed deleted but still exists: {p}"
+                c.detail = (f"claimed deleted but still exists: {p}"
+                            + (" (temporary path — usually harmless)" if ephemeral else ""))
                 findings.append(Finding(
-                    severity="high", category="claim_failed",
+                    severity="low" if ephemeral else "high",
+                    category="claim_failed",
                     title="agent claimed a deletion, but the file still exists",
                     detail=c.detail, where=str(p), session_id=session.session_id,
                     agent=session.agent, evidence=c.evidence,
@@ -204,27 +223,40 @@ def verify_claims(session: Session, claims: list[Claim]) -> list[Finding]:
                     fix="Check whether it was moved, reverted, or never written.",
                     ts=c.ts))
                 continue
-            art = artifact_by_path.get(str(p)) or artifact_by_path.get(str(p).replace("\\", "/"))
-            if art and isinstance(art.get("after"), str):
+            art = (artifact_by_path.get(str(p))
+                   or artifact_by_path.get(str(p).replace("\\", "/"))
+                   or artifact_by_path.get(os.path.normcase(str(p))))
+            if art is not None and (isinstance(art.get("after"), str)
+                                    or isinstance(art.get("must_contain"), str)):
                 try:
                     current = p.read_text(encoding="utf-8", errors="replace")
                 except (OSError, ValueError):
                     current = None
                 if current is not None:
-                    if current.strip() == art["after"].strip():
+                    after = art.get("after")
+                    if isinstance(after, str):
+                        if current.strip() == after.strip():
+                            c.status = "ok"
+                            c.detail = "content on disk matches what the tool wrote"
+                        else:
+                            c.status = "ok"
+                            c.detail = "file changed since the agent wrote it"
+                        continue
+                    mc = art["must_contain"]
+                    if mc in current:
                         c.status = "ok"
-                        c.detail = "content on disk matches what the tool wrote"
+                        c.detail = "edit content present in file"
                     else:
                         c.status = "ok"
-                        c.detail = "file changed since the agent wrote it"
+                        c.detail = ("edit content no longer present "
+                                    "(superseded or reverted)")
                     continue
             if c.kind == "edited" and started:
                 try:
                     mtime = p.stat().st_mtime
                     from datetime import datetime, timezone
                     m_dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
-                    # allow small clock slack
-                    if m_dt < started.replace(tzinfo=m_dt.tzinfo):
+                    if m_dt < started:
                         c.status = "failed"
                         c.detail = ("claimed edited but file mtime predates the "
                                     f"session ({m_dt.isoformat(timespec='seconds')})")

@@ -50,27 +50,41 @@ Verification is deterministic — no LLM, no network, no judgment calls you can'
 
 ## Quick start
 
-Requires Python 3.11+.
+Requires Python 3.11+ (stdlib only — no runtime dependencies).
 
 ```bash
-# from a clone
-pip install .
+# any of these install routes
+pip install agenttrueup            # from PyPI (once published)
+pipx install agenttrueup           # isolated CLI install
+uv tool install agenttrueup        # uv users
+pip install .                      # from a clone
 
-# or run without installing
-python -m agenttrueup doctor
+python -m agenttrueup doctor       # or run without installing at all
 ```
+
+**Try it in 30 seconds** — audit the synthetic demo shipped in this repo
+(synthetic data, no real credentials):
+
+```bash
+trueup scan --only examples/demo-claude-session.jsonl
+```
+
+Then audit your real machine (read-only):
 
 ```bash
 trueup doctor          # which agent stores were detected?
-trueup scan            # audit every detected store (read-only)
+trueup scan            # audit every detected store
 trueup scan --since 7d --agent claude,codex
 trueup scan --json     # machine-readable
 trueup scan --sarif    # SARIF 2.1.0 for GitHub code scanning
 trueup scan --fail-on high && echo "clean"   # CI gate (exit 1 if ≥ high)
-trueup scan ~/some/extra-transcripts.jsonl    # audit arbitrary files/dirs
 ```
 
 Exit codes: `0` clean · `1` findings at/above `--fail-on` (default `high`) · `2` usage error.
+
+Full command reference: [docs/USAGE.md](docs/USAGE.md) · architecture & how to
+add an agent parser: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · planned
+features: [docs/ROADMAP.md](docs/ROADMAP.md) · runnable demo: [examples/](examples/).
 
 ### Sample output (real run, secrets redacted)
 

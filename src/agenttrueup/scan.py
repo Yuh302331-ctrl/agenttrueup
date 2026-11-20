@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
+
+KNOWN_AGENTS = ("claude", "codex", "zcode", "gemini", "goose", "opencode", "qwen")
 
 from . import extract, stores
 from .models import ScanResult, Session
@@ -48,17 +51,29 @@ def _parse_extra_path(p: Path) -> list[Session]:
 
 def scan(paths: list[str] | None = None, agents: list[str] | None = None,
          since: str | None = None, reveal: bool = False,
-         verbose: bool = False) -> ScanResult:
+         verbose: bool = False, only_paths: bool = False) -> ScanResult:
     t0 = time.time()
     result = ScanResult()
-    since_dt = parse_since(since) if since else None
+    warnings: list[str] = []
+    since_dt = None
+    if since:
+        since_dt = parse_since(since)
+        if since_dt is None:
+            warnings.append(
+                f"could not parse --since {since!r}; scanning all history "
+                "(try 7d, 24h, 2w, or 2026-01-31)")
     agent_set = {a.strip().lower() for a in (agents or []) if a.strip()}
+    if agent_set:
+        unknown = agent_set - set(KNOWN_AGENTS)
+        if unknown:
+            warnings.append(f"unknown agent filter(s): {', '.join(sorted(unknown))} "
+                            f"(known: {', '.join(KNOWN_AGENTS)})")
     errors = 0
     files_seen = 0
 
     def emit(msg: str):
         if verbose:
-            print(msg, flush=True, file=__import__("sys").stderr)
+            print(msg, flush=True, file=sys.stderr)
 
     sessions: list[Session] = []
 
@@ -66,7 +81,7 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
         sessions.extend([s for s in new if s is not None])
         emit(f"  {label}: {len(new)} session file(s)")
 
-    present = stores.discover()
+    present = [] if only_paths else stores.discover()
     if agent_set:
         present = [s for s in present if s.agent in agent_set]
 
@@ -105,6 +120,9 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
 
     for extra in (paths or []):
         p = Path(extra).expanduser()
+        if not p.exists():
+            warnings.append(f"path not found, skipped: {p}")
+            continue
         try:
             add_store_sessions(_parse_extra_path(p), f"extra: {p}")
         except Exception as e:
@@ -155,10 +173,16 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
     by_sev: dict[str, int] = {}
     for f in findings:
         by_sev[f.severity] = by_sev.get(f.severity, 0) + 1
+    by_agent: dict[str, int] = {}
+    for s in sessions:
+        by_agent[s.agent] = by_agent.get(s.agent, 0) + 1
     result.stats = {
-        "stores_found": len(present),
+        "stores_found": (len(present) if not only_paths
+                         else sum(1 for extra in (paths or [])
+                                  if Path(extra).expanduser().exists())),
         "files_seen": files_seen,
         "sessions": len(sessions),
+        "sessions_by_agent": by_agent,
         "events": sum(len(s.events) for s in sessions),
         "claims": len(claims),
         "claims_failed": sum(1 for c in claims if c.status == "failed"),
@@ -167,6 +191,7 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
         "findings": len(findings),
         "findings_by_severity": by_sev,
         "errors": errors,
+        "warnings": warnings,
         "duration_sec": round(time.time() - t0, 2),
         "reveal": reveal,
     }

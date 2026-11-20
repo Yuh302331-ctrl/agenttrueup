@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..models import Event, Session
+from ..util import parse_ts
+
+_SENTINEL_DT = datetime.max.replace(tzinfo=timezone.utc)
 
 MAX_TEXT = 4000          # per-event text cap for scanning purposes
 MAX_LINES = 20000        # per-file line cap (safety on giant transcripts)
@@ -25,7 +29,7 @@ def _clamp(text: str, limit: int = MAX_TEXT) -> str:
 
 def _jsonl(path: Path):
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as fh:
+        with path.open("r", encoding="utf-8-sig", errors="replace") as fh:
             for i, line in enumerate(fh):
                 if i >= MAX_LINES:
                     break
@@ -126,8 +130,22 @@ def _tool_use_event(session: Session, name: str, inp: dict, ts):
         return
     fpath = inp.get("file_path") or inp.get("notebook_path") or inp.get("path")
     if isinstance(fpath, str) and fpath.strip():
-        kind = "file_write" if low in ("write", "notebookwrite") else "file_edit"
-        session.events.append(Event(kind, path=fpath, ts=ts, extra={"tool": name}))
+        if low in ("write", "notebookwrite"):
+            session.events.append(Event("file_write", path=fpath, ts=ts,
+                                        extra={"tool": name}))
+            content = inp.get("content")
+            if isinstance(content, str) and content:
+                # exact bytes the tool wrote → enables content-level verification
+                session.artifacts.append({"path": fpath, "existed_before": False,
+                                          "after": content, "ts": ts, "tool": name})
+        else:
+            session.events.append(Event("file_edit", path=fpath, ts=ts,
+                                        extra={"tool": name}))
+            new = inp.get("new_string") or inp.get("newText")
+            if isinstance(new, str) and new.strip():
+                session.artifacts.append({"path": fpath, "existed_before": True,
+                                          "must_contain": new, "ts": ts,
+                                          "tool": name})
         return
     # any other tool: keep a note with its string inputs for secret scanning
     interesting = {k: v for k, v in inp.items() if isinstance(v, (str, int, float)) and v}
@@ -219,18 +237,45 @@ def parse_codex_file(path: Path) -> Session:
 
 
 def _apply_patch_events(session: Session, patch: str, ts):
-    for m in _APPLY_PATCH_OPS.finditer(patch):
-        op, fpath = m.group("op"), m.group("path").strip()
-        if op == "Add File":
-            session.events.append(Event("file_write", path=fpath, ts=ts, extra={"tool": "apply_patch"}))
-        elif op == "Update File":
-            session.events.append(Event("file_edit", path=fpath, ts=ts, extra={"tool": "apply_patch"}))
-        elif op == "Delete File":
-            session.events.append(Event("note", text=f"apply_patch deleted {fpath}", path=fpath,
-                                        ts=ts, extra={"tool": "apply_patch", "deleted": True}))
-        elif op == "Move to":
-            session.events.append(Event("note", text=f"apply_patch moved file to {fpath}", path=fpath,
-                                        ts=ts, extra={"tool": "apply_patch"}))
+    cur_op: str | None = None
+    cur_path: str | None = None
+    buf: list[str] = []
+
+    def flush():
+        nonlocal cur_op, cur_path, buf
+        if cur_op == "Add File" and cur_path and buf:
+            session.artifacts.append({"path": cur_path, "existed_before": False,
+                                      "after": "\n".join(buf), "ts": ts,
+                                      "tool": "apply_patch"})
+        cur_op = cur_path = None
+        buf = []
+
+    for line in patch.splitlines():
+        m = _APPLY_PATCH_OPS.match(line)
+        if m:
+            flush()
+            cur_op, cur_path = m.group("op"), m.group("path").strip()
+            if cur_op == "Add File":
+                session.events.append(Event("file_write", path=cur_path, ts=ts,
+                                            extra={"tool": "apply_patch"}))
+            elif cur_op == "Update File":
+                session.events.append(Event("file_edit", path=cur_path, ts=ts,
+                                            extra={"tool": "apply_patch"}))
+            elif cur_op == "Delete File":
+                session.events.append(Event(
+                    "note", text=f"apply_patch deleted {cur_path}", path=cur_path,
+                    ts=ts, extra={"tool": "apply_patch", "deleted": True}))
+            elif cur_op == "Move to":
+                session.events.append(Event(
+                    "note", text=f"apply_patch moved file to {cur_path}", path=cur_path,
+                    ts=ts, extra={"tool": "apply_patch"}))
+            continue
+        if line.startswith("*** End Patch"):
+            flush()
+            continue
+        if cur_op == "Add File" and line.startswith("+"):
+            buf.append(line[1:])
+    flush()
 
 
 # -------------------------------------------------------------------- zcode
@@ -399,6 +444,24 @@ def _harvest(session: Session, obj: dict, ts, depth: int) -> None:
                 session.events.append(Event("note", text=_clamp(v, 1000), ts=ts, extra={"key": k}))
 
 
+def _earliest(a: str | None, b: str | None) -> str | None:
+    da, db = parse_ts(a), parse_ts(b)
+    if da is None:
+        return b
+    if db is None:
+        return a
+    return a if da <= db else b
+
+
+def _latest(a: str | None, b: str | None) -> str | None:
+    da, db = parse_ts(a), parse_ts(b)
+    if da is None:
+        return b
+    if db is None:
+        return a
+    return a if da >= db else b
+
+
 def merge_sessions(sessions: list[Session]) -> list[Session]:
     """Merge sessions that share (agent, session_id) — e.g. zcode rollout +
     artifacts describe the same session."""
@@ -413,11 +476,12 @@ def merge_sessions(sessions: list[Session]) -> list[Session]:
         tgt.artifacts.extend(s.artifacts)
         if tgt.project is None:
             tgt.project = s.project
-        tgt.started = min(x for x in (tgt.started, s.started) if x) if (tgt.started or s.started) else None
-        tgt.ended = max(x for x in (tgt.ended, s.ended) if x) if (tgt.ended or s.ended) else None
+        tgt.started = _earliest(tgt.started, s.started)
+        tgt.ended = _latest(tgt.ended, s.ended)
     out = list(by_key.values())
     for s in out:
-        stamps = sorted([e.ts for e in s.events if e.ts])
+        stamps = sorted([e.ts for e in s.events if e.ts],
+                        key=lambda t: parse_ts(t) or _SENTINEL_DT)
         if stamps:
             s.started = s.started or stamps[0]
             s.ended = s.ended or stamps[-1]

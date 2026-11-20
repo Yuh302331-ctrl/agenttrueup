@@ -141,9 +141,12 @@ def deletion_targets(cmd: str) -> list[str]:
         head = toks[0].lower()
         if head in ("rm", "unlink", "rmdir", "del", "erase", "rd",
                     "remove-item", "ri"):
+            win_style = head in ("del", "erase", "rd", "remove-item", "ri")
             for t in toks[1:]:
                 if t.startswith("-") or _RM_FLAGS.match(t):
                     continue
+                if win_style and t.startswith("/"):
+                    continue  # del /f, rd /s … flags, not targets
                 if t in ("&&", "||", ";", "|"):
                     break
                 # broad targets ("/", "*", "~") are danger findings, not
@@ -156,51 +159,48 @@ def deletion_targets(cmd: str) -> list[str]:
     return targets[:20]
 
 
-INSTALL_PATTERNS: list[tuple[str, str]] = [
-    # (ecosystem, prefix regex)
-    ("npm", r"\bnp[mx]?\s+(i|install|add)\b"),
-    ("npm", r"\byarn\s+(add|install)\b"),
-    ("npm", r"\bpnpm\s+(i|install|add)\b"),
-    ("pypi", r"\bpip3?\s+install\b"),
-    ("pypi", r"\buv\s+(add|pip\s+install)\b"),
-    ("pypi", r"\bpoetry\s+add\b"),
-    ("cargo", r"\bcargo\s+add\b"),
-    ("go", r"\bgo\s+get\b"),
-    ("ruby", r"\bgem\s+install\b"),
-    ("dotnet", r"\bdotnet\s+add\s+package\b"),
-    ("os", r"\b(apt|apt-get|brew|choco|winget|dnf)\s+install\b"),
+_INSTALL_SPECS: list[tuple[str, re.Pattern[str]]] = [
+    # (ecosystem, regex capturing the argument tail after the install verb)
+    ("npm", re.compile(r"\b(?:npm|pnpm)\s+(?:i|install|add)\s+(?P<args>[^\n|;&]+)")),
+    ("npm", re.compile(r"\byarn\s+(?:add|install)\s+(?P<args>[^\n|;&]+)")),
+    ("pypi", re.compile(r"\bpip3?\s+install\s+(?P<args>[^\n|;&]+)")),
+    ("pypi", re.compile(r"\buv\s+(?:add|pip\s+install)\s+(?P<args>[^\n|;&]+)")),
+    ("pypi", re.compile(r"\bpoetry\s+add\s+(?P<args>[^\n|;&]+)")),
+    ("cargo", re.compile(r"\bcargo\s+add\s+(?P<args>[^\n|;&]+)")),
+    ("go", re.compile(r"\bgo\s+get\s+(?P<args>[^\n|;&]+)")),
+    ("ruby", re.compile(r"\bgem\s+install\s+(?P<args>[^\n|;&]+)")),
+    ("dotnet", re.compile(r"\bdotnet\s+add\s+package\s+(?P<args>[^\n|;&]+)")),
+    ("os", re.compile(r"\b(?:apt|apt-get|brew|choco|winget|dnf)\s+install\s+(?P<args>[^\n|;&]+)")),
 ]
 
 _PKG_STRIP = re.compile(r"[=<>!~].*$|@[0-9^~][^/]*$|\[[^\]]*\]$")
+_PKG_OK = re.compile(r"^[@\w][\w@/.\-+]*$")
+_NOT_PKGS = (".txt", ".toml", ".lock", ".json", ".cfg", ".in", ".yaml", ".yml")
 
 
 def installed_packages(cmd: str) -> list[tuple[str, str]]:
     """(ecosystem, package) pairs a command claims to install."""
     out: list[tuple[str, str]] = []
-    eco = None
-    for sub in split_compound(cmd):
-        toks = split_command(sub)
-        if not toks:
-            continue
-        joined = " ".join(toks[:4])
-        eco = None
-        for e, rx in INSTALL_PATTERNS:
-            if re.search(rx, joined):
-                eco = e
-                break
-        if eco is None:
-            continue
-        for t in toks[1:]:
-            if t.startswith("-"):
-                continue
-            if "://" in t or t.startswith(("./", "../", "/", ".")):
-                continue  # local/git paths, not registry packages
-            pkg = _PKG_STRIP.sub("", t).strip()
-            if not pkg or " " in pkg:
-                continue
-            if eco != "os" and not re.match(r"^[@\w][\w@/.\-+]*$", pkg):
-                continue
-            out.append((eco, pkg))
+    seen: set[tuple[str, str]] = set()
+    for eco, rx in _INSTALL_SPECS:
+        for m in rx.finditer(cmd):
+            for t in split_command(m.group("args")):
+                if t.startswith("-"):
+                    continue
+                if "://" in t or t.startswith(("./", "../", "/", ".")):
+                    continue  # local/git paths, not registry packages
+                if t.lower().endswith(_NOT_PKGS):
+                    continue  # -r requirements.txt and friends
+                pkg = _PKG_STRIP.sub("", t).strip()
+                if not pkg or " " in pkg:
+                    continue
+                if eco != "os" and not _PKG_OK.match(pkg):
+                    continue
+                key = (eco, pkg.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append((eco, pkg))
     return out[:20]
 
 
@@ -230,6 +230,9 @@ def _text_claims(text: str) -> list[tuple[str, str]]:
                 claims.append((kind, subj))
     for m in _INSTALL_CLAIM.finditer(text):
         subj = m.group(1).rstrip(".,;:")
+        # "added `style.css`" is a file mention, not a dependency install
+        if looks_like_path(subj):
+            continue
         if 2 <= len(subj) <= 120 and "/" not in subj.replace("@", "", 1):
             claims.append(("installed", subj))
     return claims

@@ -30,6 +30,8 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="extra transcript files or directories (in addition to auto-detected stores)")
     ap_scan.add_argument("--agent", default="",
                          help="comma-separated agent filter: claude,codex,zcode,gemini,goose,opencode,qwen")
+    ap_scan.add_argument("--only", action="store_true",
+                         help="scan ONLY the paths given, ignore auto-detected stores")
     ap_scan.add_argument("--since", default="",
                          help="only sessions updated after: 7d, 24h, 2w, or ISO date")
     ap_scan.add_argument("--json", action="store_true", help="JSON output")
@@ -63,8 +65,8 @@ def _cmd_doctor(args) -> int:
         mark = "✓" if s.root.exists() else "✗"
         note = ""
         if s.root.exists():
-            n = sum(1 for _ in s.root.rglob("*")) if s.root.is_dir() else 0
-            note = f" ({n} entries)"
+            n = sum(1 for _, _ in zip(s.root.rglob("*"), range(2000)))
+            note = f" ({n}+ entries)" if n == 2000 else f" ({n} entries)"
         print(f"  {mark} {s.label}{note}")
     return 0
 
@@ -74,7 +76,8 @@ def _cmd_scan(args) -> int:
     st = Style(not args.no_color and sys.stdout.isatty())
     agents = [a for a in args.agent.split(",") if a.strip()]
     res = scanmod.scan(paths=args.paths, agents=agents, since=args.since,
-                       reveal=args.reveal, verbose=args.verbose)
+                       reveal=args.reveal, verbose=args.verbose,
+                       only_paths=args.only)
 
     if args.sarif:
         print(render_sarif(res))
@@ -90,10 +93,11 @@ def _cmd_scan(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = _build_parser()
     args = ap.parse_args(argv)
     try:
