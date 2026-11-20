@@ -149,7 +149,7 @@ CLAIMS LEDGER (276)   ✓ 227 verified   ✗ 45 failed   ○ 4 unverifiable
 ## Development
 
 ```bash
-python -m pytest tests/          # 47 tests, no network needed
+python -m pytest tests/          # 48 tests, no network needed
 ```
 
 CI runs the suite on Ubuntu / macOS / Windows × Python 3.11–3.13
