@@ -185,6 +185,29 @@ def test_apply_patch_add_file_content(codex_store):
     assert add_art and add_art[0]["after"] == "hello"
 
 
+def test_codex_function_call_array_arguments(tmp_path):
+    """arguments may be any JSON value — a list must not crash the parser."""
+    from agenttrueup.parsers import parse_codex_file
+    proj = tmp_path / "p"
+    proj.mkdir()
+    f = tmp_path / "codex" / "rollout-x.jsonl"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {"timestamp": "2026-11-20T09:00:00Z", "type": "session_meta",
+         "payload": {"session_id": "arr-1", "cwd": str(proj)}},
+        {"timestamp": "2026-11-20T09:00:01Z", "type": "response_item",
+         "payload": {"type": "function_call", "name": "weird_tool",
+                     "arguments": json.dumps(["a", "b"])}},
+        {"timestamp": "2026-11-20T09:00:02Z", "type": "response_item",
+         "payload": {"type": "function_call", "name": "exec_command",
+                     "arguments": json.dumps({"cmd": "rm -rf /tmp/junk", "workdir": str(proj)})}},
+    ]
+    f.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    s = parse_codex_file(f)  # must not raise
+    assert s.session_id == "arr-1"
+    assert any(e.kind == "command" and "junk" in e.text for e in s.events)
+
+
 # --------------------------------------------------------------- merging
 
 def test_merge_sessions_timezone_order():

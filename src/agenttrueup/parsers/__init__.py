@@ -196,7 +196,9 @@ def parse_codex_file(path: Path) -> Session:
             args: dict = {}
             if isinstance(args_raw, str):
                 try:
-                    args = json.loads(args_raw)
+                    parsed = json.loads(args_raw)
+                    # arguments may legally be a JSON array/string — keep a dict
+                    args = parsed if isinstance(parsed, dict) else {"_raw": str(parsed)[:500]}
                 except ValueError:
                     args = {"_raw": args_raw}
             elif isinstance(args_raw, dict):
