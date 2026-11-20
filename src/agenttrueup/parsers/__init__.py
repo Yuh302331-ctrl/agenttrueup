@@ -376,18 +376,19 @@ _GENERIC_ROLE_KEYS = ("role", "author", "speaker")
 def parse_generic_file(path: Path, agent: str = "generic") -> Session:
     session = Session(agent=agent, session_id=path.stem, source_file=str(path), project=None)
     try:
-        raw = path.read_text(encoding="utf-8", errors="replace")
+        raw = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return _finish(session)
-    lines = raw.splitlines()
-    if path.suffix.lower() == ".json" and len(lines) <= 2:
-        # whole-file JSON (e.g. zcode-style artifact records)
+    objs: list = []
+    if path.suffix.lower() == ".json":
+        # whole-file JSON first (incl. pretty-printed), then fall back to JSONL
         try:
-            objs = [json.loads(raw)]
+            obj = json.loads(raw)
+            objs = [obj] if isinstance(obj, dict) else []
         except ValueError:
             objs = []
-    else:
-        objs = []
+    if not objs:
+        lines = raw.splitlines()
         for i, line in enumerate(lines):
             if i >= MAX_LINES:
                 break

@@ -165,6 +165,7 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
     if not reveal:
         for f in findings:
             f.evidence = redact(f.evidence or "")
+            f.detail = redact(f.detail or "")
         for c in claims:
             c.evidence = redact(c.evidence or "")
 

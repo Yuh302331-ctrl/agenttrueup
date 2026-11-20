@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlparse
 
 from .models import Claim, Event, Finding, Session
+from .redact import find_secrets, redact
 from .util import looks_like_path, split_command
 
 # --------------------------------------------------------------- danger
@@ -280,8 +281,6 @@ def claims_from_session(session: Session) -> list[Claim]:
 def security_findings_for_session(session: Session,
                                   max_events: int = 4000) -> list[Finding]:
     findings: list[Finding] = []
-    from .redact import find_secrets, redact  # local import to avoid cycle
-
     seen_secret: set[tuple[str, str]] = set()
     events = session.events[:max_events]
     scanned: list[str] = []
@@ -290,6 +289,9 @@ def security_findings_for_session(session: Session,
     for art in session.artifacts[:200]:
         after = art.get("after") or ""
         scanned.append(after[:20000])
+        mc = art.get("must_contain") or ""
+        if mc:
+            scanned.append(mc[:20000])  # Claude Edit new_string may carry secrets
     for text in scanned:
         if not text:
             continue
