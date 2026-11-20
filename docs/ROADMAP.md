@@ -5,9 +5,8 @@ Nothing here is committed; each item needs a design pass.
 
 ## P1 — higher-value verification
 
-- **MCP server mode** (`trueup mcp`): expose `scan`/`get_claim_history` as MCP
-  tools so the *current* agent can self-audit ("list the claims you made today
-  that failed verification"). Stdio JSON-RPC, zero deps, ~150 lines.
+- ~~**MCP server mode**~~ — **shipped in 0.2.0** (`trueup mcp`: `trueup_scan` /
+  `trueup_doctor` tools, stdio JSON-RPC, zero deps).
 - **Claude Code hook integration**: a `PreToolUse` hook script that appends
   claims to a sidecar log — enables verifying claims *at completion time*,
   not just after the fact.

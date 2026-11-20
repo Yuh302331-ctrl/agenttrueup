@@ -2,6 +2,14 @@
 
 All notable changes to agenttrueup.
 
+## Unreleased
+
+### Added
+- **MCP server mode** (`trueup mcp`): zero-dependency Model Context Protocol
+  stdio server exposing `trueup_scan` and `trueup_doctor` tools so the current
+  AI agent can self-audit; results redacted, `fail_on` maps to `isError`.
+  4 new protocol tests including a real subprocess handshake.
+
 ## 0.2.0 — 2026-11-21
 
 ### Fixed (correctness)

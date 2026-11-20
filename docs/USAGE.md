@@ -33,6 +33,36 @@ trueup scan [PATHS...] [options]
 
 Exit codes: `0` clean · `1` findings at/above `--fail-on` · `2` usage error.
 
+## mcp — server mode for agents
+
+`trueup mcp` runs agenttrueup as an **MCP (Model Context Protocol) stdio
+server** so your current coding agent can audit sessions itself:
+
+- tools: `trueup_scan` (args: `paths[]`, `only_paths`, `agents[]`, `since`,
+  `fail_on`) and `trueup_doctor`
+- results are the same redacted JSON the CLI produces; when findings reach
+  `fail_on` severity the tool result is marked `isError` so the agent notices
+
+Register it with an MCP client, e.g. Claude Code:
+
+```bash
+claude mcp add trueup -- trueup mcp
+```
+
+or a generic JSON config:
+
+```json
+{ "mcpServers": { "trueup": { "command": "trueup", "args": ["mcp"] } } }
+```
+
+Raw protocol exchange looks like:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"trueup_scan","arguments":{"since":"7d","fail_on":"high"}}}
+```
+
 ## Recipes
 
 Audit everything from the last two weeks, only Claude + Codex:

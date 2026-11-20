@@ -43,6 +43,10 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="show raw secret values in output (default: redacted)")
     ap_scan.add_argument("--no-color", action="store_true")
     ap_scan.add_argument("-v", "--verbose", action="store_true")
+
+    sub.add_parser("mcp",
+                   help="run as an MCP (Model Context Protocol) stdio server — "
+                        "lets AI agents audit sessions via tools/call")
     return ap
 
 
@@ -105,6 +109,9 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_doctor(args)
         if args.cmd == "scan":
             return _cmd_scan(args)
+        if args.cmd == "mcp":
+            from .mcp import serve
+            return serve()
     except KeyboardInterrupt:
         print("\ninterrupted", file=sys.stderr)
         return 130

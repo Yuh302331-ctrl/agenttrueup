@@ -38,6 +38,10 @@ to disk, extracts claims and risky actions, and checks each one against reality.
 | **Settings leak** | Secrets persisted inside Claude Code permission files (the documented 2026 leak pattern) |
 | **Residue** | Agent-created files still uncommitted, editor/backup litter (`.bak`, `.orig`, …) |
 
+Plus an **MCP server mode** (`trueup mcp`): your *current* agent can call
+`trueup_scan` / `trueup_doctor` as MCP tools and self-audit — zero dependencies,
+stdio JSON-RPC.
+
 Verification is deterministic — no LLM, no network, no judgment calls you can't audit:
 
 - *deleted* claim → does the file **still exist**? → ✗ high
@@ -78,6 +82,7 @@ trueup scan --since 7d --agent claude,codex
 trueup scan --json     # machine-readable
 trueup scan --sarif    # SARIF 2.1.0 for GitHub code scanning
 trueup scan --fail-on high && echo "clean"   # CI gate (exit 1 if ≥ high)
+trueup mcp             # MCP server: agents self-audit via tools/call
 ```
 
 Exit codes: `0` clean · `1` findings at/above `--fail-on` (default `high`) · `2` usage error.
@@ -144,7 +149,7 @@ CLAIMS LEDGER (276)   ✓ 227 verified   ✗ 45 failed   ○ 4 unverifiable
 ## Development
 
 ```bash
-python -m pytest tests/          # 21 tests, no network needed
+python -m pytest tests/          # 47 tests, no network needed
 ```
 
 CI runs the suite on Ubuntu / macOS / Windows × Python 3.11–3.13
