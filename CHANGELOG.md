@@ -2,6 +2,26 @@
 
 All notable changes to agenttrueup.
 
+## 0.3.0 — 2026-11-21
+
+### Added — facts source: redhand journal integration
+- **trueup now reads redhand's change journal** (`<root>/.whodunit/journal.db`,
+  read-only, schema contract — no redhand dependency) when auditing claims.
+  Claim verdicts upgrade from "current disk state" to "recorded event stream":
+  a `deleted` claim confirmed by a journal deletion event says so (with actor
+  and timestamp); a claimed deletion with no journal deletion is contradicted
+  by the event stream (HIGH finding, category `claim_failed`).
+- **Recreated-after-deletion detection**: a file deleted as claimed but
+  created again later (by any actor) yields a MEDIUM residue finding — the
+  "显示没删干净" class of confusion now has a facts-backed answer.
+- Journals are auto-discovered by walking up from each session's project
+  (bounded, 3 levels); `--journal PATH` adds explicit roots (repeatable,
+  accepts journal.db / .whodunit dir / watched root); `--no-journal` disables.
+- `stats.journals_found` reports how many journals were used; unreadable or
+  unknown-schema journals degrade to a warning, never a crash.
+- 13 new tests (journal contract, discovery, reconciliation, WAL concurrency,
+  end-to-end scan wiring). 123 tests total, coverage 84%.
+
 ## 0.2.1 — 2026-11-21
 
 ### Fixed (detection accuracy)

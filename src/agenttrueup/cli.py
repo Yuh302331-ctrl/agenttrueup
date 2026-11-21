@@ -41,6 +41,13 @@ def _build_parser() -> argparse.ArgumentParser:
     ap_scan.add_argument("--reveal", action="store_true",
                          help="show raw secret values in output (default: redacted)")
     ap_scan.add_argument("--no-color", action="store_true")
+    ap_scan.add_argument("--journal", dest="journals", action="append", default=[],
+                         metavar="PATH",
+                         help="redhand journal.db / .whodunit dir / watched root "
+                              "(repeatable; auto-discovery also runs by default)")
+    ap_scan.add_argument("--no-journal", dest="use_journal_sources",
+                         action="store_false",
+                         help="disable redhand journal auto-discovery")
     ap_scan.add_argument("-v", "--verbose", action="store_true")
 
     sub.add_parser("mcp",
@@ -80,7 +87,8 @@ def _cmd_scan(args) -> int:
     agents = [a for a in args.agent.split(",") if a.strip()]
     res = scanmod.scan(paths=args.paths, agents=agents, since=args.since,
                        reveal=args.reveal, verbose=args.verbose,
-                       only_paths=args.only)
+                       only_paths=args.only, journals=args.journals,
+                       use_journal_sources=args.use_journal_sources)
 
     if args.sarif:
         print(render_sarif(res))

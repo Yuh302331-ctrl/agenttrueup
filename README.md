@@ -8,10 +8,17 @@ left behind.
 “实际发生的事”逐条核对，并报告它留下的残留物。
 
 100% local · read-only · zero dependencies (pure Python stdlib) · redacted output by default
+Runs on **Linux / macOS / Windows** (CI covers all three).
 
 **Who it's for**: anyone running Claude Code, Codex CLI, ZCode (or similar) on
 their own machine — especially in auto-approve / yolo modes, where nobody is
 watching each action.
+
+**Pairs with [redhand](https://github.com/Yuh302331-ctrl/redhand)** — the
+realtime counterpart that watches your folders and journals every change as
+it happens. trueup reads that journal as a facts source (see
+[Facts source: the redhand journal](#facts-source-the-redhand-journal)):
+the camera feeds the auditor.
 
 ## The idea in 10 seconds
 
@@ -30,6 +37,29 @@ trueup:        ✗ demo-key.txt  — claimed deleted but the file STILL EXISTS
 No LLM inside trueup: every verdict is a deterministic check you can audit.
 
 ---
+
+## Facts source: the redhand journal
+
+Disk state is a snapshot — it cannot tell *when* something happened or who
+did it. [redhand](https://github.com/Yuh302331-ctrl/redhand) journals every file
+change (event, timestamp, attributed actor) while your agents work. If a
+journal is present, trueup upgrades claim verification from "check the disk
+now" to "check the recorded event stream":
+
+- `deleted` claim + a journal deletion event → ✓ **confirmed by the journal**
+  (actor and timestamp quoted);
+- `deleted` claim + no deletion in the journal around the claim → ✗
+  **contradicted by the event stream** (HIGH finding) — even if a later
+  process muddied the disk state;
+- a file deleted as claimed but recreated afterwards (by any actor) →
+  MEDIUM finding with who recreated it and when;
+- `created`/`edited` claims get the same treatment.
+
+Discovery is automatic (walks up from each session's project for
+`.whodunit/journal.db`, 3 levels); `--journal PATH` adds explicit roots and
+`--no-journal` turns the integration off. Reading is strictly read-only
+(WAL-safe, never blocks a running watcher), and an unreadable journal
+degrades to a warning — never a crash.
 
 ## Why this exists
 

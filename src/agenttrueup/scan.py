@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ from .parsers import (merge_sessions, parse_claude_file, parse_codex_file,
                       parse_zcode_rollout)
 from .redact import redact
 from .util import iter_files, parse_since, parse_ts
+from .journal_source import JournalSet, discover_journals, reconcile_claims
 from .verify import (residue_findings, settings_leak_findings, verify_claims)
 
 KNOWN_AGENTS = ("claude", "codex", "zcode", "gemini", "goose", "opencode", "qwen")
@@ -51,7 +53,9 @@ def _parse_extra_path(p: Path) -> list[Session]:
 
 def scan(paths: list[str] | None = None, agents: list[str] | None = None,
          since: str | None = None, reveal: bool = False,
-         verbose: bool = False, only_paths: bool = False) -> ScanResult:
+         verbose: bool = False, only_paths: bool = False,
+         journals: list[str] | None = None,
+         use_journal_sources: bool = True) -> ScanResult:
     t0 = time.time()
     result = ScanResult()
     warnings: list[str] = []
@@ -158,16 +162,32 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
             claude_root = s.root.parent
             break
 
+    # facts source: redhand journals discovered near session projects
+    journalset = JournalSet()
+    if use_journal_sources:
+        journalset = discover_journals(
+            [s.project for s in sessions if s.project], journals)
+        if journalset.sources:
+            names = ", ".join(
+                os.path.basename(os.path.dirname(os.path.dirname(j.db_path)))
+                for j in journalset.sources)
+            emit(f"  redhand journals: {len(journalset.sources)} ({names})")
+        for problem in journalset.problems:
+            warnings.append(f"redhand journal: {problem}")
+
     for s in sessions:
         if s.project:
             projects.append(s.project)
         cl = extract.claims_from_session(s)
         claims.extend(cl)
         findings.extend(verify_claims(s, cl))
+        if use_journal_sources and journalset.sources and s.project:
+            js_for_session = journalset.for_abs_path(os.path.abspath(s.project))
+            if js_for_session is not None:
+                reconcile_claims(s, cl, findings, js_for_session)
         findings.extend(extract.security_findings_for_session(s))
         findings.extend(residue_findings(s))
     findings.extend(settings_leak_findings(claude_root, projects))
-
     if not reveal:
         for f in findings:
             f.evidence = redact(f.evidence or "")
@@ -184,6 +204,7 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
     for s in sessions:
         by_agent[s.agent] = by_agent.get(s.agent, 0) + 1
     result.stats = {
+        "journals_found": len(journalset.sources),
         "stores_found": (len(present) if not only_paths
                          else sum(1 for extra in (paths or [])
                                   if Path(extra).expanduser().exists())),
