@@ -111,6 +111,11 @@ def render_text(res: ScanResult, st: Style) -> str:
     out.append("")
     if s.get("errors"):
         out.append(st.yellow(f"note: {s['errors']} parse error(s) skipped"))
+    if s.get("hint_pair_with_redhand"):
+        out.append(st.cyan(
+            "tip: no redhand journal found — pairing with redhand "
+            "(github.com/Yuh302331-ctrl/redhand) upgrades claim verification "
+            "from disk-state to the recorded event stream."))
     out.append(st.dim("exit code reflects --fail-on (default: high). "
                       "outputs: --json, --sarif. see --reveal for raw secrets."))
     return "\n".join(out)

@@ -8,6 +8,7 @@ import sys
 from . import __version__, scan as scanmod
 from .models import sev_at_least
 from .report import Style, enable_windows_vt, render_json, render_sarif, render_text
+from .journal_source import discover_journals
 from .stores import candidate_stores
 
 
@@ -92,6 +93,18 @@ def _cmd_doctor(args) -> int:
         print("  note: sessions from the [generic parser] stores above are "
               "handled best-effort — claims and danger detection are less "
               "complete there than for claude/codex/zcode.")
+    journals = discover_journals([]).sources
+    if journals:
+        print("")
+        print(f"redhand journals: {len(journals)} detected "
+              f"({', '.join(j.root for j in journals[:3])}"
+              + (", …" if len(journals) > 3 else "") + ") — "
+              "event-stream facts will be used by `trueup scan`")
+    else:
+        print("")
+        print("redhand journals: none detected — for event-stream-backed claim "
+              "verification, pair with redhand "
+              "(github.com/Yuh302331-ctrl/redhand)")
     return 0
 
 

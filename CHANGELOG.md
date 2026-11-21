@@ -2,6 +2,17 @@
 
 All notable changes to agenttrueup.
 
+## 0.3.2 — 2026-11-22
+
+### Added — product glue
+- `doctor` reports detected redhand journals (event-stream facts will be
+  used by scan) — or says none are detected and points at redhand.
+- When a scan reconciles 5+ claims with no journal found, the text report
+  suggests pairing with redhand (the camera) for event-stream-backed facts.
+- README: combined two-minute setup for the pair; the claim-extraction
+  recall ceiling is stated plainly (deterministic parsing sees only what
+  agents said — the journal holds what actually happened).
+
 ## 0.3.1 — 2026-11-22
 
 ### Added — usability

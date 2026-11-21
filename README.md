@@ -61,6 +61,23 @@ Discovery is automatic (walks up from each session's project for
 (WAL-safe, never blocks a running watcher), and an unreadable journal
 degrades to a warning — never a crash.
 
+**Recall ceiling, stated plainly**: trueup verifies only claims it *extracts*
+from transcripts — a change the agent never mentions is invisible to the
+ledger (deterministic parsing; no LLM guessing). The journal-backed checks
+raise the *accuracy* of extracted-claim verdicts, not the *coverage* of
+unspoken work. For the full event stream, read the redhand journal directly
+([schema contract](https://github.com/Yuh302331-ctrl/redhand/blob/main/docs/JOURNAL.md)).
+
+**Two-minute setup (the pair as one product):**
+
+```bash
+pipx install redhand agenttrueup     # two tools, one trust chain
+cd your-project
+redhand watch &                      # camera: journal every change live
+trueup scan --since 1d               # auditor: reconcile claims vs facts
+trueup scan --fail-on high           # CI gate on dangerous activity
+```
+
 ## Why this exists
 
 AI coding agents now run with alarming autonomy, and 2026 research keeps confirming

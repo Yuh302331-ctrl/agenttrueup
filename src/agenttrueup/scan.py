@@ -209,6 +209,9 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
     by_agent: dict[str, int] = {}
     for s in sessions:
         by_agent[s.agent] = by_agent.get(s.agent, 0) + 1
+    result.stats["hint_pair_with_redhand"] = (
+        len(journalset.sources) == 0 and len(claims) >= 5)
+
     result.stats = {
         "journals_found": len(journalset.sources),
         "findings_total": sum(by_sev.values()),
