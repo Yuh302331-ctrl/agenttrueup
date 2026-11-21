@@ -10,7 +10,7 @@ from agenttrueup.scan import scan
 
 
 def test_scan_finds_exfil_and_claims(claude_store):
-    res = scan(paths=[str(claude_store["root"])])
+    res = scan(paths=[str(claude_store["root"])], only_paths=True)
     cats = {f.category for f in res.findings}
     assert "exfil" in cats  # webhook.site
     assert any(f.severity == "critical" and f.category == "exfil" for f in res.findings)
@@ -23,17 +23,18 @@ def test_scan_finds_exfil_and_claims(claude_store):
 
 
 def test_scan_codex_danger_and_secret(codex_store):
-    res = scan(paths=[str(codex_store["file"].parent)])
+    res = scan(paths=[str(codex_store["file"].parent)], only_paths=True)
     titles = {f.title for f in res.findings}
     assert any("root" in t for t in titles)
     assert any(f.category == "claim_failed" for f in res.findings)  # torch not in manifest
-    # deleted /tmp/old.log claim -> file missing -> ok (no false positive)
+    # "rm -rf /" is a broad target (danger finding only, no deletion claim) and
+    # the unquoted "I removed /tmp/old.log" text must NOT create a claim either
     del_claims = [c for c in res.claims if c.kind == "deleted"]
-    assert del_claims and all(c.status in ("ok", "unverifiable") for c in del_claims)
+    assert not del_claims, f"unexpected deletion claims: {del_claims}"
 
 
 def test_scan_zcode_merge(zcode_store):
-    res = scan(paths=[str(zcode_store["root"])])
+    res = scan(paths=[str(zcode_store["root"])], only_paths=True)
     assert any(s.agent == "zcode" for s in res.sessions)
     titles = {f.title for f in res.findings}
     assert any("force push" in t for t in titles)
@@ -52,7 +53,7 @@ def test_cli_json_redacts_and_exit_code(claude_store):
             {"type": "text", "text": "your key is AKIAABCDEFGHIJKLMNOP"}]}}))
     f.write_text("\n".join(rows), encoding="utf-8")
 
-    p = subprocess.run([sys.executable, "-m", "agenttrueup", "scan", str(root), "--json"],
+    p = subprocess.run([sys.executable, "-m", "agenttrueup", "scan", "--only", str(root), "--json"],
                        capture_output=True, text=True,
                        env={**__import__("os").environ, "PYTHONPATH": str(SRC)})
     assert p.returncode == 1  # critical exfil -> fail-on high
@@ -64,7 +65,7 @@ def test_cli_json_redacts_and_exit_code(claude_store):
 
 
 def test_cli_sarif(claude_store):
-    p = subprocess.run([sys.executable, "-m", "agenttrueup", "scan",
+    p = subprocess.run([sys.executable, "-m", "agenttrueup", "scan", "--only",
                         str(claude_store["root"]), "--sarif"],
                        capture_output=True, text=True,
                        env={**__import__("os").environ, "PYTHONPATH": str(SRC)})

@@ -258,14 +258,14 @@ def test_pyproject_dependency_groups(tmp_path):
 
 def test_scan_stats_include_agent_breakdown(claude_store):
     from agenttrueup.scan import scan
-    res = scan(paths=[str(claude_store["root"])])
+    res = scan(paths=[str(claude_store["root"])], only_paths=True)
     assert res.stats["sessions_by_agent"].get("claude") >= 1
 
 
 def test_scan_warnings_for_bad_args(claude_store, tmp_path):
     from agenttrueup.scan import scan
     res = scan(paths=[str(claude_store["root"]), str(tmp_path / "missing-dir")],
-               agents=["bogus-agent"], since="not-a-date")
+               agents=["bogus-agent"], since="not-a-date", only_paths=True)
     warnings = res.stats["warnings"]
     assert any("--since" in w for w in warnings)
     assert any("bogus-agent" in w for w in warnings)
