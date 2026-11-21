@@ -126,13 +126,12 @@ Verification is deterministic — no LLM, no network, no judgment calls you can'
 Requires Python 3.11+ (stdlib only — no runtime dependencies).
 
 ```bash
-# any of these install routes
-pip install agenttrueup            # from PyPI (once published)
-pipx install agenttrueup           # isolated CLI install
-uv tool install agenttrueup        # uv users
-pip install .                      # from a clone
-
-python -m agenttrueup doctor       # or run without installing at all
+# from this repo (not on PyPI yet)
+pip install "agenttrueup @ git+https://github.com/Yuh302331-ctrl/agenttrueup.git"
+pipx install "agenttrueup @ git+https://github.com/Yuh302331-ctrl/agenttrueup.git"
+# or from a clone / without installing:
+pip install . && trueup doctor
+python -m agenttrueup doctor
 ```
 
 **Try it in 30 seconds** — audit the synthetic demo shipped in this repo
