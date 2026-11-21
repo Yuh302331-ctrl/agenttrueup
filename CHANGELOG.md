@@ -2,6 +2,50 @@
 
 All notable changes to agenttrueup.
 
+## 0.2.1 — 2026-11-21
+
+### Fixed (detection accuracy)
+- **Anthropic keys are no longer double-reported**: the `openai_key` pattern
+  also matched `sk-ant-…` tokens, so one key produced both an `openai_key` and
+  an `anthropic_key` finding. The openai pattern now excludes `sk-ant-`.
+- **`git push -f` (short form) is now caught** by the force-push rule, which
+  previously only matched `--force`.
+- **Generic data-bearing requests downgraded high → medium**, and the network
+  tool + payload flag must now sit in the *same* sub-command — ordinary
+  `git ls-remote … | awk` pipelines and long composite lines no longer trip it.
+- **Heredoc bodies are stripped before danger scanning** (`python - <<'EOF'`):
+  words appearing inside written script content (e.g. a `shutdown()` call in
+  code the agent wrote) no longer fire shell-danger findings.
+- **Installed claims deduplicated**: "installed `left-pad`" (assistant text)
+  and `npm:left-pad` (command) were two claims + two findings for one event;
+  the ecosystem-prefixed claim now wins.
+- **`go.mod` installs are now actually detected**: the matcher anchored the
+  module path to line start, but real files read `require github.com/a/b
+  v1.0.0` — every go "installed" claim failed verification (found by the new
+  regression test; go is a strict ecosystem, so these were HIGH findings).
+- **Relative-path resolution walks up (bounded)** when the plain cwd join does
+  not exist, so repo-root-relative tool paths under a subdirectory cwd no
+  longer produce fake "claimed created but missing" verdicts.
+
+### Added (quality gates)
+- CLI and report rendering were untested: +53 tests cover exit codes, JSON/
+  SARIF/text rendering, redaction end-to-end, scan filters and warnings, time
+  parsing, path resolution. Coverage 67% → 83%; flake8 clean.
+
+### Changed (calibration)
+- Installed-claim failures for ecosystems whose install does *not* record the
+  package in the manifest by default (pypi/ruby/os) are now **medium**, not
+  high; npm/go/cargo/dotnet keep **high** (their installs do write manifests).
+
+### Added
+- Python < 3.11 now refuses to run with a clear error instead of silently
+  mis-verifying manifest claims (`tomllib` unavailable).
+- A warning is emitted when a store hits the 5,000-file scan cap.
+
+### Docs
+- README no longer claims byte-for-byte content comparison (it is a trimmed
+  text compare); exfil severity wording synced; scan-cap limitation added.
+
 ## Unreleased
 
 ### Added

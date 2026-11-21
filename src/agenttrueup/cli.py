@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from . import __version__, scan as scanmod
 from .models import sev_at_least
@@ -97,6 +96,12 @@ def _cmd_scan(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # pyproject gates pip installs, but running from a clone skips that check —
+    # without tomllib (3.11+) manifest checks would silently mis-verify
+    if sys.version_info < (3, 11):
+        print(f"agenttrueup requires Python 3.11+ (for tomllib); "
+              f"you are running {sys.version.split()[0]}.", file=sys.stderr)
+        return 2
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")

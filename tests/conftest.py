@@ -15,6 +15,16 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 
+@pytest.fixture(autouse=True)
+def _clear_manifest_cache():
+    """_find_manifests_cached is lru_cached per project path; keep tests isolated."""
+    from agenttrueup.verify import _find_manifests_cached
+
+    _find_manifests_cached.cache_clear()
+    yield
+    _find_manifests_cached.cache_clear()
+
+
 def write_jsonl(path: Path, rows: list[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
@@ -125,6 +135,7 @@ def zcode_store(tmp_path: Path) -> dict:
 def git_repo(tmp_path: Path) -> Path:
     proj = tmp_path / "gitproj"
     proj.mkdir()
+
     def run(*cmd):
         subprocess.run(["git", "-C", str(proj), *cmd], check=True,
                        capture_output=True,

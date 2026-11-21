@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
 EXAMPLES = REPO_ROOT / "examples"
 
-from agenttrueup.mcp import serve
+from agenttrueup.mcp import serve  # noqa: E402  (path setup above)
 
 
 class FakeStdin:

@@ -28,6 +28,14 @@ TEMP_PATH_MARKERS = ("\\temp\\", "/tmp/", "/temp/", "temp/", "\\tmp\\",
                      "node_modules", ".venv", "site-packages", "/cache/",
                      "\\appdata\\local\\temp")
 
+# ecosystems whose install command records the package in the manifest by
+# default — a missing entry there really is suspicious.  pip/gem/apt install
+# side-effect-only installs that typically never touch a manifest, so a
+# missing entry is only worth a medium nudge there.
+STRICT_MANIFEST_ECO = {"npm", "go", "cargo", "dotnet"}
+
+_CLAIM_VERB = {"created": "create", "edited": "edit"}
+
 
 def _git_available() -> bool:
     return shutil.which("git") is not None
@@ -92,7 +100,6 @@ def find_manifests(project: str | None) -> list[Path]:
 
 
 def manifest_contains(manifest: Path, package: str) -> bool:
-    eco = MANIFEST_NAMES.get(manifest.name)
     pkg_l = package.lower()
     try:
         text = manifest.read_text(encoding="utf-8", errors="replace")
@@ -139,7 +146,12 @@ def manifest_contains(manifest: Path, package: str) -> bool:
                 return True
         return False
     if manifest.name == "go.mod":
-        return bool(re.search(r"(?m)^\s*[\w./-]*" + re.escape(package) + r"\b", text))
+        # require lines look like: "require github.com/a/b v1.0.0" or entries
+        # inside a require ( ... ) block — match the module path as a bounded
+        # token anywhere in the file, not only at line start
+        return bool(re.search(
+            r"(?<![A-Za-z0-9_/.-])" + re.escape(package) + r"(?![A-Za-z0-9_/-])",
+            text))
     if manifest.name == "Cargo.toml":
         try:
             import tomllib
@@ -217,7 +229,8 @@ def verify_claims(session: Session, claims: list[Claim]) -> list[Finding]:
                 c.detail = f"claimed {c.kind} but the file is missing now: {p}"
                 findings.append(Finding(
                     severity="low", category="claim_failed",
-                    title=f"agent claimed to {c.kind} a file, but it does not exist",
+                    title=(f"agent claimed to {_CLAIM_VERB.get(c.kind, c.kind)} "
+                           "a file, but it does not exist"),
                     detail=c.detail, where=str(p), session_id=session.session_id,
                     agent=session.agent, evidence=c.evidence,
                     fix="Check whether it was moved, reverted, or never written.",
@@ -294,13 +307,14 @@ def verify_claims(session: Session, claims: list[Claim]) -> list[Finding]:
                 checked = ", ".join(m.name for m in relevant[:6])
                 c.detail = f"not found in any manifest ({checked})"
                 findings.append(Finding(
-                    severity="high", category="claim_failed",
+                    severity="high" if eco in STRICT_MANIFEST_ECO else "medium",
+                    category="claim_failed",
                     title="agent claims a dependency was installed, but no manifest records it",
                     detail=c.detail, where=session.project or "unknown project",
                     session_id=session.session_id, agent=session.agent,
                     evidence=c.evidence,
-                    fix="The install may have gone to the wrong directory, or was never run. "
-                        "Re-add the dependency deliberately.",
+                    fix=("The install may have gone to the wrong directory, or was never run. "
+                         "Re-add the dependency deliberately."),
                     ts=c.ts))
     return findings
 

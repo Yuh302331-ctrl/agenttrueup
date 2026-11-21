@@ -6,8 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-KNOWN_AGENTS = ("claude", "codex", "zcode", "gemini", "goose", "opencode", "qwen")
-
 from . import extract, stores
 from .models import ScanResult, Session
 from .parsers import (merge_sessions, parse_claude_file, parse_codex_file,
@@ -16,6 +14,8 @@ from .parsers import (merge_sessions, parse_claude_file, parse_codex_file,
 from .redact import redact
 from .util import iter_files, parse_since, parse_ts
 from .verify import (residue_findings, settings_leak_findings, verify_claims)
+
+KNOWN_AGENTS = ("claude", "codex", "zcode", "gemini", "goose", "opencode", "qwen")
 
 
 def _parse_extra_path(p: Path) -> list[Session]:
@@ -92,10 +92,16 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
                 files = iter_files(root, {".jsonl"})
                 files_seen += len(files)
                 add_store_sessions([parse_claude_file(f) for f in files], store.label)
+                if len(files) >= 5000:
+                    warnings.append(f"{store.label}: hit the 5000-file cap — "
+                                    "older sessions were not scanned")
             elif store.kind == "codex_sessions":
                 files = iter_files(root, {".jsonl"})
                 files_seen += len(files)
                 add_store_sessions([parse_codex_file(f) for f in files], store.label)
+                if len(files) >= 5000:
+                    warnings.append(f"{store.label}: hit the 5000-file cap — "
+                                    "older sessions were not scanned")
             elif store.kind == "zcode_rollout":
                 files = [f for f in root.glob("model-io-*.jsonl") if f.is_file()]
                 files_seen += len(files)

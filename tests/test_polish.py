@@ -4,7 +4,7 @@ verification, timezone-aware merging, BOM tolerance, warnings."""
 import json
 
 from agenttrueup.extract import (_text_claims, deletion_targets,
-                                  installed_packages)
+                                 installed_packages)
 from agenttrueup.models import Claim, Event, Session
 from agenttrueup.parsers import merge_sessions, parse_claude_file
 from agenttrueup.verify import manifest_contains, verify_claims

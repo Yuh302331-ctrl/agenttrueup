@@ -82,7 +82,13 @@ def split_command(cmd: str) -> list[str]:
 
 
 def resolve_path(raw: str, cwd: str | None) -> Path | None:
-    """Resolve a path mentioned in a session against the session cwd."""
+    """Resolve a path mentioned in a session against the session cwd.
+
+    Transcripts sometimes carry repo-root-relative paths while the session cwd
+    is a subdirectory (apply_patch, project-relative tool inputs).  When the
+    plain join does not exist, walk a bounded number of parents before giving
+    up, so "proj/proj/file.md" style mis-joins don't produce fake
+    'claimed created but missing' verdicts."""
     if not raw:
         return None
     raw = raw.strip().strip("\"'`")
@@ -93,9 +99,21 @@ def resolve_path(raw: str, cwd: str | None) -> Path | None:
         return p
     if cwd:
         try:
-            return Path(cwd) / p
+            joined = Path(cwd) / p
         except (ValueError, OSError):
             return None
+        if joined.exists():
+            return joined
+        try:
+            base = Path(cwd).resolve()
+            for _ in range(3):
+                base = base.parent
+                cand = base / p
+                if cand.exists():
+                    return cand
+        except (ValueError, OSError):
+            pass
+        return joined
     return None
 
 

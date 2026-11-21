@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = REPO_ROOT / "src"
 
-from agenttrueup.scan import scan
+from agenttrueup.scan import scan  # noqa: E402  (path setup above)
 
 
 def test_scan_finds_exfil_and_claims(claude_store):

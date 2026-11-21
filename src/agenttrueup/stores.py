@@ -30,7 +30,8 @@ def candidate_stores() -> list[Store]:
         Store("claude", "claude_projects", h / ".claude" / "projects", "Claude Code (~/.claude/projects)"),
         Store("codex", "codex_sessions", h / ".codex" / "sessions", "Codex CLI (~/.codex/sessions)"),
         Store("zcode", "zcode_rollout", h / ".zcode" / "cli" / "rollout", "ZCode transcripts (~/.zcode/cli/rollout)"),
-        Store("zcode", "zcode_artifacts", h / ".zcode" / "cli" / "artifacts", "ZCode file-op artifacts (~/.zcode/cli/artifacts)"),
+        Store("zcode", "zcode_artifacts", h / ".zcode" / "cli" / "artifacts",
+              "ZCode file-op artifacts (~/.zcode/cli/artifacts)"),
         Store("generic", "generic_dir", h / ".gemini" / "tmp", "Gemini CLI (best effort)"),
         Store("generic", "generic_dir", h / ".config" / "goose" / "sessions", "Goose (best effort)"),
         Store("generic", "generic_dir", h / ".local" / "share" / "opencode", "OpenCode (best effort)"),
@@ -57,7 +58,8 @@ def sniff_file(path: Path) -> str:
                     continue
                 if not isinstance(obj, dict):
                     continue
-                if obj.get("type") == "session_meta" or isinstance(obj.get("payload"), dict) and obj["payload"].get("session_id"):
+                if obj.get("type") == "session_meta" or (
+                        isinstance(obj.get("payload"), dict) and obj["payload"].get("session_id")):
                     return "codex"
                 if obj.get("type") == "model_io" or str(obj.get("sessionId", "")).startswith(("sess_", "session_")):
                     return "zcode"

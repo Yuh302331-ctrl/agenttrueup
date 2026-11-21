@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
 
-from agenttrueup.scan import scan
+from agenttrueup.scan import scan  # noqa: E402  (path setup above)
 
 
 def test_demo_session_produces_expected_verdicts():

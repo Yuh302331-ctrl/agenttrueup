@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from .models import Claim, Event, Finding, Session
+from .models import Claim, Finding, Session
 from .redact import find_secrets, redact
 from .util import looks_like_path, split_command
 
@@ -29,7 +29,7 @@ _DANGER: list[tuple[str, str, str, str]] = [
      r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|fi|da)?sh\b",
      "If this ran, assume arbitrary code executed. Review what URL was fetched."),
     ("high", "force push (rewrites remote history)",
-     r"\bgit\s+push\b[^|;&]*\s--force\b(?!-with-lease)",
+     r"\bgit\s+push\b[^|;&]*\s(?:-f\b|--force\b(?!-with-lease))",
      "Check the remote branch for lost commits (git reflog)."),
     ("high", "anti-forensics: shell history wiped",
      r"\bhistory\s+-c+\b|\brm\b[^|;&]*\.(bash|zsh|python)_history\b",
@@ -49,7 +49,7 @@ _DANGER: list[tuple[str, str, str, str]] = [
      r"\bgit\s+reset\s+--hard\b", "Recover with git fsck / reflog if needed."),
     ("medium", "untracked files removed (git clean)",
      r"\bgit\s+clean\b[^|;&]*-[a-zA-Z]*f", "Check git stash / trash for recoverable files."),
-    ("medium", "recursive force delete", r"\brm\b[^|;&>]*\s-[a-zA-Z]*r", 
+    ("medium", "recursive force delete", r"\brm\b[^|;&>]*\s-[a-zA-Z]*r",
      "Confirm the deleted path was intended."),
     ("medium", "sudo used with rm", r"\bsudo\s+rm\b", "Confirm system files were not removed."),
     ("medium", "remote history rewritten (force-with-lease)",
@@ -80,11 +80,24 @@ def split_compound(cmd: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+# heredoc bodies (python - <<'EOF' … EOF) contain *file content*, not shell
+# grammar — scanning them for danger patterns flags words that merely appear
+# inside the script (e.g. a "shutdown()" call in written code)
+_HEREDOC_RX = re.compile(
+    r"<<[-]?\s*(['\"]?)(\w+)\1[^\n]*\n.*?^\2[ \t]*$",
+    re.MULTILINE | re.DOTALL)
+
+
+def _strip_heredocs(cmd: str) -> str:
+    return _HEREDOC_RX.sub(" <<heredoc> ", cmd)
+
+
 def _danger_findings(cmd: str, ts, session_id: str, agent: str) -> list[Finding]:
     out: list[Finding] = []
     seen_titles: set[str] = set()
+    stripped = _strip_heredocs(cmd)
     for sev, title, rx, fix in _DANGER:
-        m = rx.search(cmd)
+        m = rx.search(stripped)
         if not m:
             continue
         if title in seen_titles:
@@ -115,15 +128,22 @@ def _exfil_findings(cmd: str, ts, session_id: str, agent: str) -> list[Finding]:
                 where="session command", session_id=session_id, agent=agent,
                 evidence=cmd[:400], ts=ts,
                 fix="Rotate any credentials the agent could have sent. Check the endpoint logs."))
-    if not out and re.search(r"\b(curl|wget|nc|netcat)\b", cmd) and re.search(
-            r"(--data|-d\s|--data-binary|--data-raw|--upload-file|-T\s|--post)", cmd):
-        out.append(Finding(
-            severity="high", category="exfil",
-            title="data-bearing network request",
-            detail="a command uploads/sends data over the network",
-            where="session command", session_id=session_id, agent=agent,
-            evidence=cmd[:400], ts=ts,
-            fix="Check what payload was sent and where."))
+    # generic data-bearing upload: the network tool and the payload flag must
+    # sit in the SAME sub-command — matching them anywhere in a long line
+    # flagged ordinary `git ls-remote | awk` pipelines (medium, not high:
+    # normal API calls look like this, it's a lead, not an incident)
+    if not out:
+        for sub in split_compound(cmd):
+            if re.search(r"\b(curl|wget|nc|netcat)\b", sub) and re.search(
+                    r"(--data(-binary|-raw|-urlencode)?|-d\s|--upload-file|-T\s)", sub):
+                out.append(Finding(
+                    severity="medium", category="exfil",
+                    title="data-bearing network request",
+                    detail="a command uploads/sends data over the network",
+                    where="session command", session_id=session_id, agent=agent,
+                    evidence=cmd[:400], ts=ts,
+                    fix="Check what payload was sent and where."))
+                break
     return out
 
 
@@ -275,7 +295,20 @@ def claims_from_session(session: Session) -> list[Claim]:
     for art in session.artifacts:
         kind = "edited" if art.get("existed_before") else "created"
         add(kind, str(art.get("path")), "artifact", art.get("ts"), f"tool={art.get('tool')}")
-    return claims
+
+    # "installed `left-pad`" (assistant text) and "npm:left-pad" (command) are
+    # the same claim — keep the ecosystem-prefixed one when both exist
+    by_base: dict[str, list[Claim]] = {}
+    for c in claims:
+        if c.kind == "installed":
+            base = c.subject.split(":", 1)[1] if ":" in c.subject else c.subject
+            by_base.setdefault(base.lower(), []).append(c)
+    dropped: set[int] = set()
+    for group in by_base.values():
+        if len(group) > 1:
+            keep = next((c for c in group if ":" in c.subject), group[0])
+            dropped.update(id(c) for c in group if c is not keep)
+    return [c for c in claims if id(c) not in dropped]
 
 
 def security_findings_for_session(session: Session,

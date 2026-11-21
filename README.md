@@ -56,7 +56,7 @@ Every scan answers four questions: **它说的和事实一致吗？泄露了什�
 | **Claims ledger** | Every "created / edited / deleted / installed X" claim gets a verdict: ✓ verified against disk · ✗ contradicted by disk · ○ unverifiable |
 | **Secrets exposure** | API keys, tokens, private-key blocks, credential-bearing URLs inside commands, messages and written-file snapshots — **shown redacted** (kind + sha256 fingerprint), `--reveal` to see raw |
 | **Dangerous commands** | `rm -rf /`, `curl \| sh`, force pushes, `git reset --hard`, `chmod -R 777`, `dd of=/dev/…`, history wiping, DB `DROP` … severity-graded |
-| **Exfiltration signals** | Requests to webhook.site / Discord / Telegram-bot / request-bin style endpoints, or any data-bearing upload — flagged **critical** |
+| **Exfiltration signals** | Requests to webhook.site / Discord / Telegram-bot / request-bin style endpoints — flagged **critical**; generic data-bearing uploads (`curl -d …`) — **medium** |
 | **Settings leak** | Secrets persisted inside Claude Code permission files (the documented 2026 leak pattern) |
 | **Residue** | Agent-created files still uncommitted, editor/backup litter (`.bak`, `.orig`, …) |
 
@@ -70,7 +70,7 @@ Verification is deterministic — no LLM, no network, no judgment calls you can'
 - *created* claim → does the file exist? missing → ✗ low (temporary/scratch paths are expected and excluded)
 - *edited* claim → does the file exist, and does its mtime postdate the session?
 - ZCode sessions: the artifact store records **exact before/after content** — trueup
-  re-reads the file and compares byte-for-byte
+  re-reads the file and compares its content against what was written
 - *installed* claim → is the package recorded in `package.json` / `pyproject.toml` /
   `requirements*.txt` / `go.mod` / `Cargo.toml` / `Gemfile`? → ✗ high if missing
 
@@ -158,6 +158,8 @@ CLAIMS LEDGER (276)   ✓ 227 verified   ✗ 45 failed   ○ 4 unverifiable
 - Claims extracted from natural language are conservative (quoted/backticked path-like
   subjects only); "tests pass"-style claims are listed as unverifiable, never faked.
 - Verification is point-in-time: a file deleted *after* the session looks like "missing".
+- Transcript scanning is capped (20,000 lines/file, 5,000 files/store, 6,000
+  events/session); very large stores are scanned partially and a warning says so.
 - Generic (non-Claude/Codex/ZCode) parsing is best-effort string harvesting.
 - Heuristics can produce false positives/negatives — findings are leads, not verdicts.
 
@@ -182,7 +184,7 @@ CI runs the suite on Ubuntu / macOS / Windows × Python 3.11–3.13
 **agenttrueup（命令名 `trueup`）**：AI 编码智能体的“对账”工具。Agent 收工后，
 它把 Agent *说*做过的事与文件系统 / git / 依赖清单里 *实际*发生的事逐条核对。
 
-- **验证声明**：声称删除的文件还在吗？声称安装的依赖进 manifest 了吗？声称的修改真的落盘了吗？（有内容快照时做逐字节比对）
+- **验证声明**：声称删除的文件还在吗？声称安装的依赖进 manifest 了吗？声称的修改真的落盘了吗？（有内容快照时比对磁盘内容与当时写入的内容）
 - **泄露扫描**：命令、消息、写入文件快照里的 API key / token / 私钥块 / 带密码的连接串——默认脱敏显示（只给类型 + SHA256 指纹）
 - **危险命令分级**：`rm -rf /`、`curl | sh`、强推、`reset --hard`、抹历史、数据库 `DROP` 等
 - **外传信号**：向 webhook.site / Discord / Telegram-bot 类收集端点发数据 → critical

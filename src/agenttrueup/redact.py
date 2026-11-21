@@ -21,15 +21,21 @@ from .util import fingerprint
 SECRET_PATTERNS: list[tuple[str, re.Pattern[str], str, int | None]] = [
     ("aws_access_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "high", None),
     ("aws_secret_key", re.compile(r"(?i)\baws.{0,20}?['\"]([0-9a-zA-Z/+]{40})['\"]"), "high", 1),
-    ("github_pat", re.compile(r"\bghp_[A-Za-z0-9]{36,50}\b|\bgithub_pat_[A-Za-z0-9_]{22,255}\b"), "high", None),
-    ("github_oauth", re.compile(r"\bgho_[A-Za-z0-9]{36}\b|\bghu_[A-Za-z0-9]{36}\b|\bghs_[A-Za-z0-9]{36}\b"), "high", None),
+    ("github_pat",
+     re.compile(r"\bghp_[A-Za-z0-9]{36,50}\b|\bgithub_pat_[A-Za-z0-9_]{22,255}\b"), "high", None),
+    ("github_oauth",
+     re.compile(r"\bgho_[A-Za-z0-9]{36}\b|\bghu_[A-Za-z0-9]{36}\b|\bghs_[A-Za-z0-9]{36}\b"), "high", None),
     ("gitlab_pat", re.compile(r"\bglpat-[A-Za-z0-9\-_]{20,}\b"), "high", None),
-    ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"), "high", None),
+    # anthropic before openai, and the openai pattern excludes sk-ant- —
+    # otherwise one Anthropic key is reported twice (both patterns match it)
     ("anthropic_key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{24,}\b"), "high", None),
+    ("openai_key", re.compile(r"\bsk-(?!ant-)[A-Za-z0-9_-]{20,}\b"), "high", None),
     ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), "high", None),
     ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b"), "high", None),
     ("stripe_key", re.compile(r"\b(sk|rk)_(live|test)_[0-9a-zA-Z]{24,}\b"), "high", None),
-    ("private_key_block", re.compile(r"-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----"), "critical", None),
+    ("private_key_block",
+     re.compile(r"-----BEGIN (RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY( BLOCK)?-----"),
+     "critical", None),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{5,}\b"), "medium", None),
     ("uri_credentials", re.compile(
         r"\b[a-z][a-z0-9+.\-]{2,20}://[^\s:/@'\"<>]{1,64}:[^\s@'\"<>]{4,128}@[^\s'\"<>]+"), "high", None),
