@@ -155,7 +155,8 @@ def test_resolve_path_walks_up_when_join_missing(tmp_path):
     (proj / "work").mkdir()
     (proj / "work" / "app").write_text("nested", encoding="utf-8")
     p2 = resolve_path("work/app", str(proj))
-    assert p2 is not None and p2.exists() and str(p2).endswith("app/work/app")
+    assert p2 is not None and p2.exists()
+    assert p2 == proj / "work" / "app"  # Path equality is separator-agnostic
 
 
 # ---------------------------------------------------------------- residue + settings leak
