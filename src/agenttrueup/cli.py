@@ -35,6 +35,10 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="only sessions updated after: 7d, 24h, 2w, or ISO date")
     ap_scan.add_argument("--json", action="store_true", help="JSON output")
     ap_scan.add_argument("--sarif", action="store_true", help="SARIF 2.1.0 output (for CI)")
+    ap_scan.add_argument("--min-severity", dest="min_severity", default=None,
+                         choices=["critical", "high", "medium", "low", "info"],
+                         help="only report findings at this severity or above "
+                              "(counts in stats always reflect the full scan)")
     ap_scan.add_argument("--fail-on", default="high",
                          choices=["critical", "high", "medium", "low", "info", "never"],
                          help="exit 1 when findings at this severity or above exist (default: high)")
@@ -71,13 +75,23 @@ def _cmd_doctor(args) -> int:
     if not stores_found:
         print("  (none found — run a Claude Code / Codex / ZCode session first, "
               "or pass paths explicitly to `trueup scan`)")
+    generic_seen = []
     for s in candidate_stores():
         mark = "✓" if s.root.exists() else "✗"
         note = ""
         if s.root.exists():
             n = sum(1 for _, _ in zip(s.root.rglob("*"), range(2000)))
             note = f" ({n}+ entries)" if n == 2000 else f" ({n} entries)"
-        print(f"  {mark} {s.label}{note}")
+        parsing = ("full parsing" if s.kind != "generic_dir"
+                   else "generic parser — best effort")
+        if s.kind == "generic_dir" and s.root.exists():
+            generic_seen.append(s.label)
+        print(f"  {mark} {s.label}{note}  [{parsing}]")
+    if generic_seen:
+        print("")
+        print("  note: sessions from the [generic parser] stores above are "
+              "handled best-effort — claims and danger detection are less "
+              "complete there than for claude/codex/zcode.")
     return 0
 
 
@@ -88,7 +102,8 @@ def _cmd_scan(args) -> int:
     res = scanmod.scan(paths=args.paths, agents=agents, since=args.since,
                        reveal=args.reveal, verbose=args.verbose,
                        only_paths=args.only, journals=args.journals,
-                       use_journal_sources=args.use_journal_sources)
+                       use_journal_sources=args.use_journal_sources,
+                       min_severity=args.min_severity)
 
     if args.sarif:
         print(render_sarif(res))

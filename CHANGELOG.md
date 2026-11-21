@@ -2,6 +2,17 @@
 
 All notable changes to agenttrueup.
 
+## 0.3.1 — 2026-11-22
+
+### Added — usability
+- `--min-severity` display filter: report only findings at/above a severity
+  (`findings_by_severity` in stats always reflects the full scan; the
+  findings list is what gets filtered). Exit codes still honor `--fail-on`.
+- `doctor` now declares parsing coverage per store — `[full parsing]` for
+  claude/codex/zcode, `[generic parser — best effort]` for everything else —
+  with an explicit note that generic-agent results are less complete, so
+  unsupported-agent users know their audit is partial.
+
 ## 0.3.0 — 2026-11-21
 
 ### Added — facts source: redhand journal integration

@@ -143,3 +143,48 @@ def test_scan_agent_filter(spicy, capsys):
     assert rc == 0
     doc = json.loads(capsys.readouterr().out)
     assert doc["findings"] == []
+
+
+# ---------------------------------------------------------------- min severity
+
+
+def test_min_severity_filters_findings(spicy, capsys):
+    rc = main(["scan", "--only", str(spicy), "--json", "--min-severity", "high"])
+    doc = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert all(f["severity"] in ("critical", "high") for f in doc["findings"])
+    # full counts are preserved in stats even though the list is filtered
+    assert doc["stats"]["findings_total"] >= len(doc["findings"])
+
+
+def test_min_severity_critical_spares_high_only(tmp_path, capsys):
+    rows = [
+        {"type": "assistant", "sessionId": "m-1", "cwd": str(tmp_path),
+         "timestamp": "2026-11-20T10:00:00Z",
+         "message": {"role": "assistant", "content": [
+             {"type": "text", "text": "I deleted `old.txt`."}]}},
+    ]
+    p = tmp_path / "m.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    rc = main(["scan", "--only", str(p), "--json", "--min-severity", "critical"])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["findings"] == []  # only claim_failed(high) existed -> filtered
+    assert rc == 0
+
+
+def test_doctor_generic_coverage_note(tmp_path, monkeypatch, capsys):
+    from agenttrueup import cli as cli_mod
+    from agenttrueup.stores import Store
+
+    fake = [
+        Store("claude", "claude_projects", tmp_path / "claude" / "projects", "Claude Code"),
+        Store("generic", "generic_dir", tmp_path / "goose" / "sessions", "Goose (best effort)"),
+    ]
+    for st in fake:
+        st.root.mkdir(parents=True)
+    monkeypatch.setattr(cli_mod, "candidate_stores", lambda: fake)
+    assert cli_mod._cmd_doctor(type("A", (), {"json": False})()) == 0
+    out = capsys.readouterr().out
+    assert "full parsing" in out
+    assert "generic parser" in out
+    assert "less complete" in out

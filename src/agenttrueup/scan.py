@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from . import extract, stores
-from .models import ScanResult, Session
+from .models import ScanResult, Session, sev_at_least
 from .parsers import (merge_sessions, parse_claude_file, parse_codex_file,
                       parse_generic_file, parse_zcode_artifacts_dir,
                       parse_zcode_rollout)
@@ -55,7 +55,8 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
          since: str | None = None, reveal: bool = False,
          verbose: bool = False, only_paths: bool = False,
          journals: list[str] | None = None,
-         use_journal_sources: bool = True) -> ScanResult:
+         use_journal_sources: bool = True,
+         min_severity: str | None = None) -> ScanResult:
     t0 = time.time()
     result = ScanResult()
     warnings: list[str] = []
@@ -195,16 +196,22 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
         for c in claims:
             c.evidence = redact(c.evidence or "")
 
-    result.claims = claims
-    result.findings = findings
+    # severity counts reflect the FULL scan; the findings list is filtered
+    # by --min-severity so the report shows only what the user asked for
     by_sev: dict[str, int] = {}
     for f in findings:
         by_sev[f.severity] = by_sev.get(f.severity, 0) + 1
+    result.claims = claims
+    result.findings = findings
+    if min_severity:
+        findings[:] = [f for f in findings
+                       if sev_at_least(f.severity, min_severity)]
     by_agent: dict[str, int] = {}
     for s in sessions:
         by_agent[s.agent] = by_agent.get(s.agent, 0) + 1
     result.stats = {
         "journals_found": len(journalset.sources),
+        "findings_total": sum(by_sev.values()),
         "stores_found": (len(present) if not only_paths
                          else sum(1 for extra in (paths or [])
                                   if Path(extra).expanduser().exists())),
