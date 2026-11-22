@@ -181,11 +181,13 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
             projects.append(s.project)
         cl = extract.claims_from_session(s)
         claims.extend(cl)
-        findings.extend(verify_claims(s, cl))
         if use_journal_sources and journalset.sources and s.project:
             js_for_session = journalset.for_abs_path(os.path.abspath(s.project))
             if js_for_session is not None:
                 reconcile_claims(s, cl, findings, js_for_session)
+        # Check disk for claims the journal did not resolve. Running both checks
+        # can produce a failure for a confirmed deletion followed by recreation.
+        findings.extend(verify_claims(s, [c for c in cl if c.status == "unverifiable"]))
         findings.extend(extract.security_findings_for_session(s))
         findings.extend(residue_findings(s))
     findings.extend(settings_leak_findings(claude_root, projects))

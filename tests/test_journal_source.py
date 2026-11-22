@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import time
+from datetime import datetime
 from pathlib import Path
 
+import pytest
+
+from agenttrueup import stores
 from agenttrueup.journal_source import (
     JournalSource,
     discover_journals,
@@ -61,7 +64,7 @@ def _sess(project: Path) -> Session:
 
 
 T_CLAIM = "2026-11-20T10:30:00Z"
-T_BEFORE = time.mktime(time.strptime("2026-11-20T10:25:00Z", "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
+T_BEFORE = datetime.fromisoformat("2026-11-20T10:25:00+00:00").timestamp()
 T_AFTER = T_BEFORE + 400.0  # after the claim + grace window
 
 
@@ -132,7 +135,7 @@ def test_created_claim_confirmed_by_journal(tmp_path):
     assert "created at" in claims[0].detail
 
 
-def test_created_claim_modified_not_created(tmp_path):
+def test_created_claim_with_only_modification_needs_disk_check(tmp_path):
     proj = tmp_path / "p"
     proj.mkdir(parents=True)
     (proj / "old.md").write_text("x", encoding="utf-8")  # predates the journal
@@ -141,8 +144,36 @@ def test_created_claim_modified_not_created(tmp_path):
     claims = [Claim(kind="created", subject="old.md", via="text",
                     session_id="s", agent="claude", ts=T_CLAIM)]
     reconcile_claims(s, claims, [], JournalSource(root=str(proj), db_path=str(db)))
-    assert claims[0].status == "ok"
-    assert "modified (not created)" in claims[0].detail
+    assert claims[0].status == "unverifiable"
+
+
+@pytest.mark.parametrize(("kind", "event"), [
+    ("deleted", "deleted"), ("created", "created"), ("edited", "modified"),
+])
+def test_events_from_before_session_do_not_confirm_claim(tmp_path, kind, event):
+    session = _sess(tmp_path)
+    old_timestamp = T_BEFORE - 24 * 60 * 60
+    db = build_journal(tmp_path, [(old_timestamp, "draft.md", event, "codex", "high")])
+    claim = Claim(kind=kind, subject="draft.md", via="text", session_id="s",
+                  agent="claude", ts=T_CLAIM)
+    findings = []
+    reconcile_claims(session, [claim], findings, JournalSource(str(tmp_path), str(db)))
+    assert claim.status == "unverifiable"
+    assert findings == []
+
+
+@pytest.mark.parametrize(("started", "claim_ts"), [
+    (None, T_CLAIM), ("2026-11-20T10:00:00Z", None),
+    ("2026-11-20T10:40:00Z", T_CLAIM),
+])
+def test_invalid_claim_window_needs_disk_check(tmp_path, started, claim_ts):
+    session = _sess(tmp_path)
+    session.started = started
+    db = build_journal(tmp_path, [(T_BEFORE, "draft.md", "deleted", "codex", "high")])
+    claim = Claim(kind="deleted", subject="draft.md", via="text", session_id="s",
+                  agent="claude", ts=claim_ts)
+    reconcile_claims(session, [claim], [], JournalSource(str(tmp_path), str(db)))
+    assert claim.status == "unverifiable"
 
 
 def test_no_journal_events_keeps_disk_verdict(tmp_path):
@@ -212,7 +243,7 @@ def test_scan_end_to_end_with_journal(tmp_path, capsys):
     (proj / "report.md").write_text("still here", encoding="utf-8")
     rows = [
         {"type": "user", "sessionId": "j-1", "cwd": str(proj),
-         "timestamp": "2026-11-20T10:29:00Z",
+         "timestamp": "2026-11-20T10:20:00Z",
          "message": {"role": "user", "content": "delete report.md"}},
         {"type": "assistant", "sessionId": "j-1", "cwd": str(proj),
          "timestamp": T_CLAIM,
@@ -230,9 +261,32 @@ def test_scan_end_to_end_with_journal(tmp_path, capsys):
     doc = json.loads(out.out) if out.out else json.loads(out.err)
     assert doc["stats"].get("journals_found") == 1
     cats = [f["category"] for f in doc["findings"]]
-    assert "claim_failed" in cats
+    assert cats.count("claim_failed") == 1
     detail_blob = json.dumps(doc["claims"])
     assert "redhand journal" in detail_blob
+
+
+def test_scan_confirmed_deletion_recreated_within_grace(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(stores, "_home", lambda: tmp_path / "home")
+    (tmp_path / "draft.md").write_text("recreated", encoding="utf-8")
+    claim_time = datetime.fromisoformat(T_CLAIM).timestamp()
+    build_journal(tmp_path, [
+        (claim_time + 2, "draft.md", "deleted", "claude", "high"),
+        (claim_time + 5, "draft.md", "created", "manual", "low"),
+    ])
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(json.dumps({
+        "type": "assistant", "sessionId": "j-3", "cwd": str(tmp_path),
+        "timestamp": T_CLAIM,
+        "message": {"role": "assistant", "content": "I deleted `draft.md`."},
+    }), encoding="utf-8")
+
+    assert main(["scan", "--only", str(transcript), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["claims"][0]["status"] == "ok"
+    assert "confirmed by redhand journal" in doc["claims"][0]["detail"]
+    assert [f["category"] for f in doc["findings"]] == ["residue"]
+    assert doc["findings"][0]["severity"] == "medium"
 
 
 def test_scan_no_journal_flag_disables(tmp_path, capsys):

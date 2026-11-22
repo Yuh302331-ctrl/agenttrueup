@@ -71,14 +71,13 @@ Audit everything from the last two weeks, only Claude + Codex:
 trueup scan --since 2w --agent claude,codex
 ```
 
-CI gate (GitHub Actions): fail the job on critical/high and upload SARIF:
+On GitHub Actions, write a SARIF report and fail the job on high or critical findings.
 
 ```yaml
 - name: trueup audit
   run: |
-    pip install agenttrueup  # or: pip install git+https://github.com/Yuh302331-ctrl/agenttrueup
-    trueup scan --sarif > trueup.sarif || CODE=$?
-    # CODE is 1 when findings >= high — treat as a gate, not a crash
+    python -m pip install "agenttrueup @ git+https://github.com/Yuh302331-ctrl/agenttrueup.git"
+    trueup scan --sarif --fail-on high > trueup.sarif
   continue-on-error: false
 ```
 

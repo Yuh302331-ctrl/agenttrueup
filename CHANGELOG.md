@@ -90,6 +90,13 @@ All notable changes to agenttrueup.
 
 ## Unreleased
 
+### Fixed
+- Match redhand events from the session start through the claim's polling grace
+  period. Check disk when journal evidence is unavailable. Report confirmed
+  deletions followed by recreation as residue.
+- Install both tools from GitHub in the paired setup and initialize redhand
+  before watching so Git ignores the journal and snapshots.
+
 ### Added
 - **MCP server mode** (`trueup mcp`): zero-dependency Model Context Protocol
   stdio server exposing `trueup_scan` and `trueup_doctor` tools so the current

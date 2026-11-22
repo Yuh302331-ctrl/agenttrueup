@@ -182,7 +182,7 @@ def _fmt_ts(ts: Optional[float]) -> str:
 
 
 def reconcile_claims(session, claims, findings, journal: JournalSource) -> None:
-    """Upgrade claim verdicts using the journal's event stream (in place).
+    """Resolve claims with journal evidence from the session through the claim.
 
     * deleted  + journal shows the deletion   -> ok, confirmed by journal
     * deleted  + journal shows no deletion,
@@ -191,8 +191,15 @@ def reconcile_claims(session, claims, findings, journal: JournalSource) -> None:
     * edited   + journal shows a modification -> ok, confirmed by journal
     * any confirmed deletion later followed by a re-creation -> medium finding
     """
+    session_start = _ts_of(session.started)
+    if session_start is None:
+        return
+
     for c in claims:
         if c.kind not in ("deleted", "created", "edited"):
+            continue
+        claim_ts = _ts_of(c.ts)
+        if claim_ts is None or claim_ts < session_start:
             continue
         abs_path = _resolve_claim(session, c.subject)
         if abs_path is None:
@@ -201,33 +208,29 @@ def reconcile_claims(session, claims, findings, journal: JournalSource) -> None:
         if rel is None:
             continue
         events = journal.events_for(rel)
-        if not events:
-            continue  # journal has no opinion; keep the disk-state verdict
-
-        claim_ts = _ts_of(c.ts)
+        deadline = claim_ts + CLAIM_GRACE_SEC
         window = [e for e in events
-                  if claim_ts is None or e["ts"] <= claim_ts + CLAIM_GRACE_SEC]
-        later = [e for e in events
-                 if claim_ts is not None and e["ts"] > claim_ts + CLAIM_GRACE_SEC]
-
-        last_in_window = window[-1] if window else None
-        deletes_in_window = [e for e in window if e["event"] == "deleted"]
+                  if session_start <= e["ts"] <= deadline]
+        if not window:
+            continue
 
         if c.kind == "deleted":
-            if deletes_in_window:
-                ev = deletes_in_window[-1]
+            deletions = [i for i, event in enumerate(window) if event["event"] == "deleted"]
+            if deletions:
+                index = deletions[-1]
+                ev = window[index]
                 c.status = "ok"
                 c.detail = (f"confirmed by redhand journal: deleted at "
                             f"{_fmt_ts(ev['ts'])} (actor {ev['actor']})")
+                later = window[index + 1:] + [e for e in events if e["ts"] > deadline]
                 _note_recreation(findings, session, rel, later)
-            elif last_in_window is not None and last_in_window["event"] != "deleted":
-                ev = last_in_window
+            else:
+                ev = window[-1]
                 c.status = "failed"
                 c.detail = (f"per redhand journal: no deletion around the claim — "
                             f"last recorded event was {ev['event']} at "
                             f"{_fmt_ts(ev['ts'])} (actor {ev['actor']})")
                 _journal_contradiction(findings, session, c, ev)
-            # no relevant journal events in window: keep disk-state verdict
         elif c.kind == "created":
             creates = [e for e in window if e["event"] == "created"]
             if creates:
@@ -235,11 +238,6 @@ def reconcile_claims(session, claims, findings, journal: JournalSource) -> None:
                 c.status = "ok"
                 c.detail = (f"confirmed by redhand journal: created at "
                             f"{_fmt_ts(ev['ts'])} (actor {ev['actor']})")
-            elif last_in_window is not None and last_in_window["event"] == "modified":
-                ev = last_in_window
-                c.status = "ok"
-                c.detail = (f"exists; per redhand journal the file was modified "
-                            f"(not created) at {_fmt_ts(ev['ts'])} by {ev['actor']}")
         elif c.kind == "edited":
             mods = [e for e in window if e["event"] in ("modified", "created")]
             if mods:

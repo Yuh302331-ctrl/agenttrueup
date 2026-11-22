@@ -46,14 +46,17 @@ change (event, timestamp, attributed actor) while your agents work. If a
 journal is present, trueup upgrades claim verification from "check the disk
 now" to "check the recorded event stream":
 
-- `deleted` claim + a journal deletion event → ✓ **confirmed by the journal**
+- `deleted` claim + a matching deletion event → ✓ **confirmed by the journal**
   (actor and timestamp quoted);
-- `deleted` claim + no deletion in the journal around the claim → ✗
-  **contradicted by the event stream** (HIGH finding) — even if a later
-  process muddied the disk state;
+- `deleted` claim + a recorded creation or modification in the window, with
+  no deletion → ✗ **contradicted by the event stream** (HIGH finding);
 - a file deleted as claimed but recreated afterwards (by any actor) →
-  MEDIUM finding with who recreated it and when;
-- `created`/`edited` claims get the same treatment.
+  MEDIUM finding with who recreated it and when.
+
+Journal matching starts at the transcript's session start and ends 60 seconds
+after the claim to allow for polling delay. When the timestamps or relevant
+events are missing, trueup checks the current disk state. `created` and `edited`
+claims use the same time window.
 
 Discovery is automatic (walks up from each session's project for
 `.whodunit/journal.db`, 3 levels); `--journal PATH` adds explicit roots and
@@ -68,14 +71,28 @@ raise the *accuracy* of extracted-claim verdicts, not the *coverage* of
 unspoken work. For the full event stream, read the redhand journal directly
 ([schema contract](https://github.com/Yuh302331-ctrl/redhand/blob/main/docs/JOURNAL.md)).
 
-**Two-minute setup (the pair as one product):**
+**Run the two tools together**
 
 ```bash
-pipx install redhand agenttrueup     # two tools, one trust chain
+pipx install "redhand @ git+https://github.com/Yuh302331-ctrl/redhand.git"
+pipx install "agenttrueup @ git+https://github.com/Yuh302331-ctrl/agenttrueup.git"
+```
+
+In the project you want to watch, initialize redhand before starting the watcher.
+On first setup, `redhand init` adds `.whodunit/` to the project's `.gitignore`.
+The directory holds the journal and file snapshots.
+
+```bash
 cd your-project
-redhand watch &                      # camera: journal every change live
-trueup scan --since 1d               # auditor: reconcile claims vs facts
-trueup scan --fail-on high           # CI gate on dangerous activity
+redhand init
+redhand watch
+```
+
+Leave the watcher running. In a second terminal, scan recent sessions after the
+agent finishes and include the project's journal.
+
+```bash
+trueup scan --since 1d --journal /path/to/your-project
 ```
 
 ## Why this exists
@@ -219,7 +236,7 @@ CLAIMS LEDGER (276)   ✓ 227 verified   ✗ 45 failed   ○ 4 unverifiable
 ## Development
 
 ```bash
-python -m pytest tests/          # 48 tests, no network needed
+python -m pytest tests/          # no network needed
 ```
 
 CI runs the suite on Ubuntu / macOS / Windows × Python 3.11–3.13
@@ -237,7 +254,7 @@ CI runs the suite on Ubuntu / macOS / Windows × Python 3.11–3.13
 - **残留物**：Agent 创建却未提交的文件、备份垃圾
 
 ```bash
-pip install agenttrueup   # 或 pipx / uv tool；纯标准库，零运行时依赖
+pipx install "agenttrueup @ git+https://github.com/Yuh302331-ctrl/agenttrueup.git"
 trueup scan               # 只读、离线，审计本机全部已检测到的会话
 trueup scan --only examples/demo-claude-session.jsonl   # 30 秒上手 demo
 ```
