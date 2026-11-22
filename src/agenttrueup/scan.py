@@ -14,7 +14,7 @@ from .parsers import (merge_sessions, parse_claude_file, parse_codex_file,
                       parse_zcode_rollout)
 from .redact import redact
 from .util import iter_files, parse_since, parse_ts
-from .journal_source import JournalSet, discover_journals, reconcile_claims
+from .journal_source import JournalSet, JournalSource, discover_journals, reconcile_claims
 from .verify import (residue_findings, settings_leak_findings, verify_claims)
 
 KNOWN_AGENTS = ("claude", "codex", "zcode", "gemini", "goose", "opencode", "qwen")
@@ -56,7 +56,9 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
          verbose: bool = False, only_paths: bool = False,
          journals: list[str] | None = None,
          use_journal_sources: bool = True,
-         min_severity: str | None = None) -> ScanResult:
+         min_severity: str | None = None, *,
+         journal_source: JournalSource | None = None,
+         include_local_settings: bool = True) -> ScanResult:
     t0 = time.time()
     result = ScanResult()
     warnings: list[str] = []
@@ -158,16 +160,20 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
     claims = []
     projects: list[str] = []
     claude_root = None
-    for s in stores.candidate_stores():
-        if s.agent == "claude":
-            claude_root = s.root.parent
-            break
+    if include_local_settings:
+        for s in stores.candidate_stores():
+            if s.agent == "claude":
+                claude_root = s.root.parent
+                break
 
     # facts source: redhand journals discovered near session projects
     journalset = JournalSet()
     if use_journal_sources:
-        journalset = discover_journals(
-            [s.project for s in sessions if s.project], journals)
+        if journal_source is not None:
+            journalset.sources.append(journal_source)
+        else:
+            journalset = discover_journals(
+                [s.project for s in sessions if s.project], journals)
         if journalset.sources:
             names = ", ".join(
                 os.path.basename(os.path.dirname(os.path.dirname(j.db_path)))
@@ -190,7 +196,8 @@ def scan(paths: list[str] | None = None, agents: list[str] | None = None,
         findings.extend(verify_claims(s, [c for c in cl if c.status == "unverifiable"]))
         findings.extend(extract.security_findings_for_session(s))
         findings.extend(residue_findings(s))
-    findings.extend(settings_leak_findings(claude_root, projects))
+    if include_local_settings:
+        findings.extend(settings_leak_findings(claude_root, projects))
     if not reveal:
         for f in findings:
             f.evidence = redact(f.evidence or "")
