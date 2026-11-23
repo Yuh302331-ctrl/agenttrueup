@@ -10,7 +10,7 @@ left behind.
 100% local · read-only · zero dependencies (pure Python stdlib) · redacted output by default
 Runs on **Linux / macOS / Windows** (CI covers all three).
 
-**Desktop interface / 图形界面** · [Download File Change Desk](https://github.com/Yuh302331-ctrl/redhand/releases/tag/desktop-v0.1.0).
+**Desktop interface / 图形界面** · [Download File Change Desk](https://github.com/Yuh302331-ctrl/redhand/releases).
 The app combines redhand with trueup and includes a sample you can try from the **核对 AI** tab.
 
 **Who it's for**: anyone running Claude Code, Codex CLI, ZCode (or similar) on
